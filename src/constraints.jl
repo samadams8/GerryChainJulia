@@ -27,11 +27,11 @@ a district in a `partition` could have within `tolerance`.
 *Returns* the PopulationConstraint object.
 """
 function PopulationConstraint(
-    graph::BaseGraph,
-    partition::Partition,
+    graph::AbstractGraph,
+    partition::AbstractPartition,
     tolerance::Float64,
 )::PopulationConstraint
-    ideal_pop = graph.total_pop / partition.num_dists
+    ideal_pop = total_pop(graph) / num_dists(partition)
 
     # no particular reason to not use floor() instead of ceil()
     min_pop = Int(ceil((1 - tolerance) * ideal_pop))
@@ -82,21 +82,23 @@ repository at src/constraints.jl.
 """
 function satisfy_constraint(
     constraint::ContiguityConstraint,
-    graph::BaseGraph,
-    partition::Partition,
+    graph::AbstractGraph,
+    partition::AbstractPartition,
     flip::FlipProposal,
 )
     # get node's neighbors who were in its old district
-    neighbors =
-        [n for n in graph.neighbors[flip.node] if partition.assignments[n] == flip.D₁]
-    if isempty(neighbors) # this is the only node of this district left!
+    nbrs = neighbors(graph)
+    asg = assignments(partition)
+    node_neighbors =
+        [n for n in nbrs[flip.node] if asg[n] == flip.D₁]
+    if isempty(node_neighbors) # this is the only node of this district left!
         return false
     end
-    source_node = pop!(neighbors)
+    source_node = pop!(node_neighbors)
 
     # DFS search to verify contiguity is not broken
-    @inbounds for target_node in neighbors
-        visited = zeros(Bool, graph.num_nodes)
+    @inbounds for target_node in node_neighbors
+        visited = zeros(Bool, num_nodes(graph))
         queue = Queue{Int}(64)  # TODO: auto-tune?
         enqueue!(queue, target_node)
         visited[target_node] = true
@@ -107,10 +109,10 @@ function satisfy_constraint(
                 found = true
                 break
             end
-            for neighbor in graph.neighbors[curr_node]
+            for neighbor in nbrs[curr_node]
                 if (
                     !visited[neighbor] &&
-                    partition.assignments[neighbor] == flip.D₁ &&
+                    asg[neighbor] == flip.D₁ &&
                     neighbor != flip.node
                 )
                     visited[neighbor] = true

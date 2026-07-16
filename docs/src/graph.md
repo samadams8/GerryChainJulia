@@ -18,6 +18,8 @@ Once you initialize a `BaseGraph`, you can access the following properties from 
 | `neighbors` Array{Array{Int64,1},1}        | An array of arrays, where `neighbors[i]` holds a list of all the neighbors of node `i` |
 | `simple_graph` SimpleGraph                 | A SimpleGraph object from the LightGraphs library |
 | `attributes` Array{Dict{String, Any}}      | An array of dictionaries where `attributes[i]` holds the attributes of node `i` |
+| `edge_penalties` Vector{Float64}           | Per-edge penalties (index = edge id); used by weighted / region-aware ReCom |
+| `region_cols` Dict{String, Vector{UInt32}} | Dense region-id columns for region-aware MST weights |
 
 *BaseGraph*
 

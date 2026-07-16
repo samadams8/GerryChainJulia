@@ -6,11 +6,12 @@ using LightGraphs
 using JSON
 using HDF5
 using Logging
+using SparseArrays
 
 const testdir = dirname(@__FILE__)
-square_grid_filepath = "./maps/test_grid_4x4.json"
-cols_grid_filepath = "./maps/cols_grid_4x4.json"
-square_shp_filepath = "./maps/simple_squares.shp"
+square_grid_filepath = joinpath(testdir, "maps", "test_grid_4x4.json")
+cols_grid_filepath = joinpath(testdir, "maps", "cols_grid_4x4.json")
+square_shp_filepath = joinpath(testdir, "maps", "simple_squares.shp")
 
 tests = [
     "graph",
@@ -24,6 +25,7 @@ tests = [
     "accept",
     "election",
     "plot",
+    "test_extensibility",
 ]
 
 @testset "GerryChainJulia" begin

@@ -15,8 +15,8 @@ import LibSpatialIndex
 using Logging
 using ResumableFunctions
 
-export AbstractGraph,
-    BaseGraph,
+export BaseGraph,
+    AbstractPartition,
     Partition,
     get_attributes,
     get_populations_and_assignments,
@@ -26,16 +26,45 @@ export AbstractGraph,
     get_subgraph_population,
     induced_subgraph_edges,
     update_partition_adjacency,
+    clone_for_update,
+
+    # graph / partition accessors
+    # (AbstractGraph / neighbors / kruskal_mst are intentionally not exported —
+    # they clash with LightGraphs; use GerryChain.AbstractGraph, field access or
+    # GerryChain.neighbors / GerryChain.kruskal_mst instead.)
+    num_nodes,
+    num_edges,
+    total_pop,
+    populations,
+    edge_src,
+    edge_dst,
+    edge_penalties,
+    has_region,
+    region_ids,
+    num_dists,
+    num_cut_edges,
+    assignments,
+    dist_populations,
+    cut_edges,
+    dist_adj,
+    dist_nodes,
+    set_edge_penalty!,
+    set_edge_penalties_from_pairs!,
+    add_region_column!,
 
     # balance edges
     random_kruskal_mst,
+    weighted_kruskal_mst,
+    build_mst_weights!,
 
     # proposals
+    AbstractProposal,
     RecomProposal,
     FlipProposal,
     DummyProposal,
 
     # constraints
+    AbstractConstraint,
     PopulationConstraint,
     ContiguityConstraint,
     satisfy_constraint,
@@ -44,6 +73,9 @@ export AbstractGraph,
     update_partition!,
     recom_chain,
     recom_chain_iter,
+    sample_subgraph,
+    get_balanced_proposal,
+    get_valid_proposal,
 
     # flip
     flip_chain,
@@ -65,7 +97,6 @@ export AbstractGraph,
     save_scores_to_json,
     save_scores_to_hdf5,
     get_score_values,
-    num_cut_edges,
     coerce_aggregated_attributes!,
 
     # acceptance functions

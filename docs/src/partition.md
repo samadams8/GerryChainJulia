@@ -16,7 +16,10 @@ The `Partition`, once constructed, has the following properties:
 | `cut_edges` Array{Int, 1}                  | An array of length(num_edges) where `cut_edges[i]` is 1 if edge `i` is a cut edge, and 0 otherwise  |
 |`dist_adj` SparseMatrixCSC{Int, Int}        | An adjacency matrix of size length(num_districts) x length(num_districts) where districts `i` and `j` are adjacent if `dist_adj[i, j]` is the number of cut-edges between districts `i` and `j`. If the districts are not adjacent, this value is 0 |
 | `dist_nodes` BitSet                        | An array of sets where `dist_nodes[i]` is the set of all district nodes of district `i`   |
-| `parent` Union{Partition, Nothing}         | A field that holds the parent of the Partition. This value is `Nothing` in the first step of the chain when the Partition has no parent |
+| `parent` Union{AbstractPartition, Nothing} | A field that holds the parent of the Partition. This value is `Nothing` in the first step of the chain when the Partition has no parent |
+
+`Partition` subtypes `AbstractPartition`. Use `clone_for_update` for cheap
+copy-on-write clones; see [Extending GerryChain](extending.md).
 
 *Partition*
 

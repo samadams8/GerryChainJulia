@@ -11,6 +11,78 @@ struct BaseGraph <: AbstractGraph
     neighbors::Array{Array{Int64,1},1}
     simple_graph::SimpleGraph              # the base SimpleGraph, if we need it
     attributes::Array{Dict{String,Any}}
+    edge_penalties::Vector{Float64}       # of length(num_edges); index = edge id
+    region_cols::Dict{String,Vector{UInt32}}  # dense region id columns
+end
+
+"""
+    BaseGraph(num_nodes, num_edges, total_pop, populations, adj_matrix,
+              edge_src, edge_dst, neighbors, simple_graph, attributes)
+
+Compatibility constructor matching the pre-0.2.0 10-field layout.
+Initializes `edge_penalties` to zeros and `region_cols` to an empty dict.
+
+`attributes` may be any vector of string-keyed dicts (e.g. `Dict{String,String}`);
+values are coerced to `Dict{String,Any}` for storage.
+"""
+function BaseGraph(
+    num_nodes::Int,
+    num_edges::Int,
+    total_pop::Int,
+    populations::Array{Int,1},
+    adj_matrix::SparseMatrixCSC{Int,Int},
+    edge_src::Array{Int,1},
+    edge_dst::Array{Int,1},
+    neighbors::Array{<:AbstractVector{<:Integer},1},
+    simple_graph::SimpleGraph,
+    attributes::AbstractVector{<:AbstractDict{<:AbstractString,<:Any}},
+)
+    attrs = Dict{String,Any}[Dict{String,Any}(d) for d in attributes]
+    nbrs = Array{Array{Int64,1},1}([Int64.(n) for n in neighbors])
+    return BaseGraph(
+        num_nodes,
+        num_edges,
+        total_pop,
+        populations,
+        adj_matrix,
+        edge_src,
+        edge_dst,
+        nbrs,
+        simple_graph,
+        attrs,
+        zeros(Float64, num_edges),
+        Dict{String,Vector{UInt32}}(),
+    )
+end
+
+# --- AbstractGraph accessors (default concrete implementations) ---
+
+num_nodes(g::BaseGraph) = g.num_nodes
+num_edges(g::BaseGraph) = g.num_edges
+total_pop(g::BaseGraph) = g.total_pop
+populations(g::BaseGraph) = g.populations
+edge_src(g::BaseGraph) = g.edge_src
+edge_dst(g::BaseGraph) = g.edge_dst
+neighbors(g::BaseGraph) = g.neighbors
+edge_penalties(g::BaseGraph) = g.edge_penalties
+
+"""
+    has_region(g::AbstractGraph, col::AbstractString)::Bool
+
+Return whether dense region column `col` is registered on the graph.
+"""
+has_region(g::BaseGraph, col::AbstractString) = haskey(g.region_cols, String(col))
+
+"""
+    region_ids(g::AbstractGraph, col::AbstractString)::AbstractVector{UInt32}
+
+Return the dense region-id vector for column `col`.
+"""
+function region_ids(g::BaseGraph, col::AbstractString)
+    key = String(col)
+    haskey(g.region_cols, key) ||
+        throw(ArgumentError("Region column \"$key\" is not registered on this graph."))
+    return g.region_cols[key]
 end
 
 """
@@ -125,7 +197,8 @@ Constructs BaseGraph from .shp file.
 function graph_from_shp(
     filepath::AbstractString,
     pop_col::AbstractString,
-    adjacency::String = "rook",
+    adjacency::String = "rook";
+    region_columns::Vector{String} = String[],
 )::BaseGraph
     table = read_table(filepath)
 
@@ -145,10 +218,12 @@ function graph_from_shp(
 
     populations = get_attribute_by_key(attributes, pop_col, population_to_int)
     total_pop = sum(populations)
+    n_edges = ne(graph)
+    region_cols = build_region_cols(attributes, region_columns)
 
     return BaseGraph(
         nv(graph),
-        ne(graph),
+        n_edges,
         total_pop,
         populations,
         adj_matrix,
@@ -157,6 +232,8 @@ function graph_from_shp(
         neighbors,
         graph,
         attributes,
+        zeros(Float64, n_edges),
+        region_cols,
     )
 end
 
@@ -231,7 +308,11 @@ end
 
 [1]: https://github.com/mggg/GerryChain/blob/c87da7e69967880abc99b781cd37468b8cb18815/gerrychain/graph/graph.py#L38
 """
-function graph_from_json(filepath::AbstractString, pop_col::AbstractString)::BaseGraph
+function graph_from_json(
+    filepath::AbstractString,
+    pop_col::AbstractString;
+    region_columns::Vector{String} = String[],
+)::BaseGraph
     raw_graph = JSON.parsefile(filepath)
     nodes = raw_graph["nodes"]
     num_nodes = length(nodes)
@@ -260,6 +341,7 @@ function graph_from_json(filepath::AbstractString, pop_col::AbstractString)::Bas
 
     # get attributes
     attributes = get_attributes(nodes)
+    region_cols = build_region_cols(attributes, region_columns)
 
     return BaseGraph(
         num_nodes,
@@ -272,13 +354,16 @@ function graph_from_json(filepath::AbstractString, pop_col::AbstractString)::Bas
         neighbors,
         simple_graph,
         attributes,
+        zeros(Float64, num_edges),
+        region_cols,
     )
 end
 
 """
     BaseGraph(filepath::AbstractString,
               pop_col::AbstractString;
-              adjacency::String="rook")::BaseGraph
+              adjacency::String="rook",
+              region_columns::Vector{String}=String[])::BaseGraph
 
 Builds the BaseGraph object. This is the underlying network of our
 districts, and its properties are immutable i.e they will not change
@@ -291,17 +376,25 @@ from step to step in our Markov Chains.
                   population of that node
 - adjacency:      (Only used if the user specifies a filepath to a .shp
                   file.) Should be either "queen" or "rook"; "rook" by default.
+- region_columns: Attribute column names to materialize as dense
+                  `UInt32` region-id vectors for region-aware ReCom.
 """
 function BaseGraph(
     filepath::AbstractString,
     pop_col::AbstractString;
     adjacency::String = "rook",
+    region_columns::Vector{String} = String[],
 )::BaseGraph
     extension = uppercase(splitext(filepath)[2])
     if uppercase(extension) == ".JSON"
-        return graph_from_json(filepath, pop_col)
+        return graph_from_json(filepath, pop_col; region_columns = region_columns)
     elseif uppercase(extension) == ".SHP"
-        return graph_from_shp(filepath, pop_col, adjacency)
+        return graph_from_shp(
+            filepath,
+            pop_col,
+            adjacency;
+            region_columns = region_columns,
+        )
     else
         throw(
             DomainError(
@@ -333,15 +426,18 @@ end
 *Returns* a list of edges of the subgraph induced by `vlist`, which is an array
 of vertices.
 """
-function induced_subgraph_edges(graph::BaseGraph, vlist::Array{Int,1})::Array{Int,1}
+function induced_subgraph_edges(
+    graph::BaseGraph,
+    vlist::Array{Int,1},
+)::Array{Int,1}
     allunique(vlist) || throw(ArgumentError("Vertices in subgraph list must be unique"))
     induced_edges = Set{Int}()
 
     vset = Set(vlist)
-    for src in vlist
-        for dst in graph.neighbors[src]
-            if dst in vset
-                push!(induced_edges, graph.adj_matrix[src, dst])
+    for src_node in vlist
+        for dst_node in graph.neighbors[src_node]
+            if dst_node in vset
+                push!(induced_edges, graph.adj_matrix[src_node, dst_node])
             end
         end
     end
@@ -349,7 +445,7 @@ function induced_subgraph_edges(graph::BaseGraph, vlist::Array{Int,1})::Array{In
 end
 
 """
-    get_subgraph_population(graph::BaseGraph,
+    get_subgraph_population(graph::AbstractGraph,
                             nodes::BitSet)::Int
 
 *Arguments:*
@@ -358,10 +454,107 @@ end
 
 *Returns* the population of the subgraph induced by `nodes`.
 """
-function get_subgraph_population(graph::BaseGraph, nodes::BitSet)::Int
-    total_pop = 0
+function get_subgraph_population(graph::AbstractGraph, nodes::BitSet)::Int
+    pops = populations(graph)
+    total = 0
     for node in nodes
-        total_pop += graph.populations[node]
+        total += pops[node]
     end
-    return total_pop
+    return total
+end
+
+"""
+    encode_region_values(values)::Vector{UInt32}
+
+Map arbitrary region labels to dense `UInt32` codes (1-based).
+"""
+function encode_region_values(values)::Vector{UInt32}
+    code_of = Dict{Any,UInt32}()
+    coded = Vector{UInt32}(undef, length(values))
+    next_code = UInt32(1)
+    for (i, v) in enumerate(values)
+        if !haskey(code_of, v)
+            code_of[v] = next_code
+            next_code += UInt32(1)
+        end
+        coded[i] = code_of[v]
+    end
+    return coded
+end
+
+"""
+    build_region_cols(attributes, region_columns::Vector{String})
+
+Build a dictionary of dense region-id columns from node attribute dicts.
+"""
+function build_region_cols(
+    attributes,
+    region_columns::Vector{String},
+)::Dict{String,Vector{UInt32}}
+    region_cols = Dict{String,Vector{UInt32}}()
+    for col in region_columns
+        values = get_attribute_by_key(attributes, col)
+        region_cols[col] = encode_region_values(values)
+    end
+    return region_cols
+end
+
+"""
+    add_region_column!(g::BaseGraph, name::AbstractString, values)
+
+Register (or replace) a dense region column. `values` length must equal
+`num_nodes(g)`. Non-`UInt32` values are encoded to dense codes.
+"""
+function add_region_column!(g::BaseGraph, name::AbstractString, values)
+    length(values) == g.num_nodes || throw(
+        ArgumentError(
+            "Region column length ($(length(values))) must equal num_nodes ($(g.num_nodes)).",
+        ),
+    )
+    if eltype(values) <: Integer
+        g.region_cols[String(name)] = UInt32.(values)
+    else
+        g.region_cols[String(name)] = encode_region_values(values)
+    end
+    return g
+end
+
+"""
+    set_edge_penalty!(g::BaseGraph, u::Int, v::Int, w::Float64)
+
+Set the penalty for the edge between nodes `u` and `v`.
+"""
+function set_edge_penalty!(g::BaseGraph, u::Int, v::Int, w::Float64)
+    edge_id = g.adj_matrix[u, v]
+    edge_id == 0 && throw(ArgumentError("No edge between nodes $u and $v."))
+    g.edge_penalties[edge_id] = w
+    return g
+end
+
+"""
+    set_edge_penalties_from_pairs!(g::BaseGraph, penalties)
+
+Set edge penalties from a dictionary keyed by `(u, v)` node pairs
+(order-insensitive) or from a vector indexed by edge id.
+"""
+function set_edge_penalties_from_pairs!(
+    g::BaseGraph,
+    penalties::AbstractDict{<:Tuple{Int,Int},<:Real},
+)
+    for ((u, v), w) in penalties
+        set_edge_penalty!(g, u, v, Float64(w))
+    end
+    return g
+end
+
+function set_edge_penalties_from_pairs!(g::BaseGraph, penalties::AbstractVector{<:Real})
+    length(penalties) == g.num_edges || throw(
+        ArgumentError(
+            "Penalty vector length ($(length(penalties))) must equal num_edges ($(g.num_edges)).",
+        ),
+    )
+    for i = 1:g.num_edges
+        g.edge_penalties[i] = Float64(penalties[i])
+    end
+    return g
 end

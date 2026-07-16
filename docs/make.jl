@@ -9,6 +9,7 @@ makedocs(
         "Getting started with a chain"=>"getting_started.md",
         "BaseGraph"=>"graph.md",
         "Partition"=>"partition.md",
+        "Extending GerryChain"=>"extending.md",
         "Constraints"=>"constraints.md",
         "Acceptance Functions"=>"accept.md",
         "Scores"=>Any[

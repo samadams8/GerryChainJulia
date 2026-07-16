@@ -157,4 +157,75 @@ using DataStructures
     # test that attributes can be accessed
     @test graph.attributes[1]["purple"] == 15
     @test graph.attributes[1]["pink"] == 5
+
+    @testset "edge_penalties and region columns" begin
+        @test length(edge_penalties(graph)) == graph.num_edges
+        @test all(iszero, edge_penalties(graph))
+
+        u, v = 1, 2
+        set_edge_penalty!(graph, u, v, 5.0)
+        eid = graph.adj_matrix[u, v]
+        @test edge_penalties(graph)[eid] == 5.0
+
+        set_edge_penalties_from_pairs!(graph, Dict((2, 3) => 7.5, (3, 4) => 1.0))
+        @test edge_penalties(graph)[graph.adj_matrix[2, 3]] == 7.5
+        @test edge_penalties(graph)[graph.adj_matrix[3, 4]] == 1.0
+
+        @test !has_region(graph, "county")
+        add_region_column!(graph, "county", [1, 1, 2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 4, 4])
+        @test has_region(graph, "county")
+        @test length(region_ids(graph, "county")) == graph.num_nodes
+        @test region_ids(graph, "county")[1] == region_ids(graph, "county")[2]
+        @test region_ids(graph, "county")[1] != region_ids(graph, "county")[3]
+
+        # cross-boundary detection
+        srcs, dsts = edge_src(graph), edge_dst(graph)
+        cross = 0
+        for e = 1:num_edges(graph)
+            if region_ids(graph, "county")[srcs[e]] != region_ids(graph, "county")[dsts[e]]
+                cross += 1
+            end
+        end
+        @test cross > 0
+
+        g2 = BaseGraph(
+            square_grid_filepath,
+            "population";
+            region_columns = ["assignment"],
+        )
+        @test has_region(g2, "assignment")
+        @test length(region_ids(g2, "assignment")) == g2.num_nodes
+    end
+
+    @testset "10-arg BaseGraph compatibility constructor" begin
+        g10 = BaseGraph(
+            graph.num_nodes,
+            graph.num_edges,
+            graph.total_pop,
+            graph.populations,
+            graph.adj_matrix,
+            graph.edge_src,
+            graph.edge_dst,
+            graph.neighbors,
+            graph.simple_graph,
+            graph.attributes,
+        )
+        @test length(edge_penalties(g10)) == g10.num_edges
+        @test all(iszero, edge_penalties(g10))
+        @test isempty(g10.region_cols)
+
+        # UTGC-style attributes: Vector{Dict{String,String}}
+        attrs_str = [Dict("county" => "A"), Dict("county" => "B")]
+        simple = SimpleGraph(2)
+        add_edge!(simple, 1, 2)
+        src, dst = GerryChain.edges_from_graph(simple)
+        adj = GerryChain.adjacency_matrix_from_graph(simple)
+        nbrs = GerryChain.neighbors_from_graph(simple)
+        g_str = BaseGraph(
+            2, 1, 2, [1, 1], adj, src, dst, nbrs, simple, attrs_str
+        )
+        @test g_str.attributes isa Array{Dict{String,Any}}
+        @test g_str.attributes[1]["county"] == "A"
+        @test length(edge_penalties(g_str)) == 1
+    end
 end

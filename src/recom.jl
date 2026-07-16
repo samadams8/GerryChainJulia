@@ -1,18 +1,21 @@
-
 """
-    sample_subgraph(graph::BaseGraph,
-                    partition::Partition,
+    sample_subgraph(graph::AbstractGraph,
+                    partition::AbstractPartition,
                     rng::AbstractRNG)
 
 Randomly sample two adjacent districts D₁ and D₂ and return a tuple
 (D₁, D₂, edges, nodes) where D₁ and D₂ are Ints, `edges` and `nodes` are Sets
 containing the Int edges and Int nodes of the induced subgraph.
 """
-function sample_subgraph(graph::BaseGraph, partition::Partition, rng::AbstractRNG)
+function sample_subgraph(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    rng::AbstractRNG,
+)
     D₁, D₂ = sample_adjacent_districts_randomly(partition, rng)
 
     # take all their nodes
-    nodes = union(partition.dist_nodes[D₁], partition.dist_nodes[D₂])
+    nodes = union(dist_nodes(partition)[D₁], dist_nodes(partition)[D₂])
 
     # get a subgraph of these two districts
     edges = induced_subgraph_edges(graph, collect(nodes))
@@ -21,13 +24,17 @@ function sample_subgraph(graph::BaseGraph, partition::Partition, rng::AbstractRN
 end
 
 """
-    build_mst(graph::BaseGraph,
+    build_mst(graph::AbstractGraph,
               nodes::BitSet,
               edges::BitSet)::Dict{Int, Array{Int, 1}}
 
 Builds a graph as an adjacency list from the `mst_nodes` and `mst_edges`.
 """
-function build_mst(graph::BaseGraph, nodes::BitSet, edges::BitSet)::Dict{Int,Array{Int,1}}
+function build_mst(
+    graph::AbstractGraph,
+    nodes::BitSet,
+    edges::BitSet,
+)::Dict{Int,Array{Int,1}}
     mst = Dict{Int,Array{Int,1}}()
     for node in nodes
         mst[node] = Array{Int,1}()
@@ -39,27 +46,39 @@ function build_mst(graph::BaseGraph, nodes::BitSet, edges::BitSet)::Dict{Int,Arr
 end
 
 """
-    remove_edge_from_mst!(graph::BaseGraph,
+    remove_edge_from_mst!(graph::AbstractGraph,
                           mst::Dict{Int, Array{Int,1}},
                           edge::Int)
 
 Removes an edge from the graph built by `build_mst()`.
 """
-function remove_edge_from_mst!(graph::BaseGraph, mst::Dict{Int,Array{Int,1}}, edge::Int)
-    filter!(e -> e != graph.edge_dst[edge], mst[graph.edge_src[edge]])
-    filter!(e -> e != graph.edge_src[edge], mst[graph.edge_dst[edge]])
+function remove_edge_from_mst!(
+    graph::AbstractGraph,
+    mst::Dict{Int,Array{Int,1}},
+    edge::Int,
+)
+    srcs = edge_src(graph)
+    dsts = edge_dst(graph)
+    filter!(e -> e != dsts[edge], mst[srcs[edge]])
+    filter!(e -> e != srcs[edge], mst[dsts[edge]])
 end
 
 """
-    add_edge_to_mst!(graph::BaseGraph,
+    add_edge_to_mst!(graph::AbstractGraph,
                      mst::Dict{Int, Array{Int,1}},
                      edge::Int)
 
     Adds an edge to the graph built by `build_mst()`.
 """
-function add_edge_to_mst!(graph::BaseGraph, mst::Dict{Int,Array{Int,1}}, edge::Int)
-    push!(mst[graph.edge_src[edge]], graph.edge_dst[edge])
-    push!(mst[graph.edge_dst[edge]], graph.edge_src[edge])
+function add_edge_to_mst!(
+    graph::AbstractGraph,
+    mst::Dict{Int,Array{Int,1}},
+    edge::Int,
+)
+    srcs = edge_src(graph)
+    dsts = edge_dst(graph)
+    push!(mst[srcs[edge]], dsts[edge])
+    push!(mst[dsts[edge]], srcs[edge])
 end
 
 """
@@ -111,10 +130,10 @@ function traverse_mst(
 end
 
 """
-    get_balanced_proposal(graph::BaseGraph,
+    get_balanced_proposal(graph::AbstractGraph,
                           mst_edges::BitSet,
                           mst_nodes::BitSet,
-                          partition::Partition,
+                          partition::AbstractPartition,
                           pop_constraint::PopulationConstraint,
                           D₁::Int,
                           D₂::Int)
@@ -125,16 +144,19 @@ Tries to find a balanced cut on the subgraph induced by `mst_edges` and
 This subgraph was formed by the combination of districts `D₁` and `D₂`.
 """
 function get_balanced_proposal(
-    graph::BaseGraph,
+    graph::AbstractGraph,
     mst_edges::BitSet,
     mst_nodes::BitSet,
-    partition::Partition,
+    partition::AbstractPartition,
     pop_constraint::PopulationConstraint,
     D₁::Int,
     D₂::Int,
 )
     mst = build_mst(graph, mst_nodes, mst_edges)
-    subgraph_pop = partition.dist_populations[D₁] + partition.dist_populations[D₂]
+    pops = dist_populations(partition)
+    subgraph_pop = pops[D₁] + pops[D₂]
+    srcs = edge_src(graph)
+    dsts = edge_dst(graph)
 
     # pre-allocated reusable data structures to reduce number of memory allocations
     stack = Stack{Int}()
@@ -143,8 +165,8 @@ function get_balanced_proposal(
     for edge in mst_edges
         component₁ = traverse_mst(
             mst,
-            graph.edge_src[edge],
-            graph.edge_dst[edge],
+            srcs[edge],
+            dsts[edge],
             stack,
             component_container,
         )
@@ -163,36 +185,54 @@ function get_balanced_proposal(
 end
 
 """
-    get_valid_proposal(graph::BaseGraph,
-                       partition::Partition,
+    get_valid_proposal(graph::AbstractGraph,
+                       partition::AbstractPartition,
                        pop_constraint::PopulationConstraint,
                        rng::AbstractRNG,
-                       num_tries::Int=3)
+                       num_tries::Int=3;
+                       region_surcharges::Dict{String,Float64}=Dict{String,Float64}())
 
 *Returns* a population balanced proposal.
 
 *Arguments:*
-    - graph:          BaseGraph
-    - partition:      Partition
+    - graph:          AbstractGraph
+    - partition:      AbstractPartition
     - pop_constraint: PopulationConstraint to adhere to
     - num_tries:      num times to try getting a balanced cut from a subgraph
                       before giving up
-    - rng:            A random number generator that implements the 
-                      [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG) 
+    - rng:            A random number generator that implements the
+                      [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
                       (e.g. `Random.default_rng()` or `MersenneTwister(1234)`)
+    - region_surcharges: Optional per-region-column surcharges added to MST
+                      weights when an edge crosses a region boundary
 """
 function get_valid_proposal(
-    graph::BaseGraph,
-    partition::Partition,
+    graph::AbstractGraph,
+    partition::AbstractPartition,
     pop_constraint::PopulationConstraint,
     rng::AbstractRNG,
-    num_tries::Int = 3,
+    num_tries::Int = 3;
+    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
 )
+    use_weighted =
+        !isempty(region_surcharges) || any(!iszero, edge_penalties(graph))
+
     while true
         D₁, D₂, sg_edges, sg_nodes = sample_subgraph(graph, partition, rng)
+        sg_node_list = collect(sg_nodes)
 
         for _ = 1:num_tries
-            mst_edges = random_kruskal_mst(graph, sg_edges, collect(sg_nodes), rng)
+            mst_edges = if use_weighted
+                weighted_kruskal_mst(
+                    graph,
+                    sg_edges,
+                    sg_node_list,
+                    rng;
+                    region_surcharges = region_surcharges,
+                )
+            else
+                random_kruskal_mst(graph, sg_edges, sg_node_list, rng)
+            end
 
             # see if we can get a population-balanced cut in this mst
             proposal = get_balanced_proposal(
@@ -214,22 +254,24 @@ end
 
 """
     update_partition!(partition::Partition,
-                      graph::BaseGraph,
+                      graph::AbstractGraph,
                       proposal::RecomProposal,
                       copy_parent::Bool=false)
 
 Updates the `Partition` with the `RecomProposal`.
+
+When `copy_parent` is true, a field-wise snapshot of the current partition
+is stored in `partition.parent` (no recursive `deepcopy`). Prefer
+`clone_for_update` + `update_partition!(..., false)` when returning a new state.
 """
 function update_partition!(
     partition::Partition,
-    graph::BaseGraph,
+    graph::AbstractGraph,
     proposal::RecomProposal,
     copy_parent::Bool = false,
 )
     if copy_parent
-        partition.parent = nothing
-        old_partition = deepcopy(partition)
-        partition.parent = old_partition
+        partition.parent = _copy_partition_fields(partition; parent = nothing)
     end
 
     partition.dist_populations[proposal.D₁] = proposal.D₁_pop
@@ -249,24 +291,25 @@ function update_partition!(
 end
 
 """
-    recom_chain_iter(graph::BaseGraph,
-                partition::Partition,
+    recom_chain_iter(graph::AbstractGraph,
+                partition::AbstractPartition,
                 pop_constraint::PopulationConstraint,
                 num_steps::Int,
                 scores::Array{S, 1};
                 num_tries::Int=3,
                 acceptance_fn::F=always_accept,
                 rng::AbstractRNG=Random.default_rng(),
-                no_self_loops::Bool=false) where {F<:Function,S<:AbstractScore}
+                no_self_loops::Bool=false,
+                region_surcharges::Dict{String,Float64}=Dict{String,Float64}()) where {F<:Function,S<:AbstractScore}
 
 Runs a Markov Chain for `num_steps` steps using ReCom. Returns an iterator
 of `(Partition, score_vals)`. Note that `Partition` is mutable and will change
-in-place with each iteration -- a `deepcopy()` is needed if you wish to interact 
+in-place with each iteration -- use `clone_for_update` if you wish to interact
 with the `Partition` object outside of the for loop.
 
 *Arguments:*
-- graph:            `BaseGraph`
-- partition:        `Partition` with the plan information
+- graph:            `AbstractGraph`
+- partition:        `AbstractPartition` with the plan information
 - pop_constraint:   `PopulationConstraint`
 - num_steps:        Number of steps to run the chain for
 - scores:           Array of `AbstractScore`s to capture at each step
@@ -277,7 +320,7 @@ with the `Partition` object outside of the for loop.
                     proposal. Should accept a `Partition` as input.
 - rng:              Random number generator. The user can pass in their
                     own; otherwise, we use the default RNG from Random. Must
-                    implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG) 
+                    implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
                     (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
 - no\\_self\\_loops: If this is true, then a failure to accept a new state
                     is not considered a self-loop; rather, the chain
@@ -285,6 +328,7 @@ with the `Partition` object outside of the for loop.
                     function is satisfied. BEWARE - this can create
                     infinite loops if the acceptance function is never
                     satisfied!
+- region_surcharges: Optional region-boundary MST surcharges
 - progress_bar      If this is true, a progress bar will be printed to stdout.
 """
 function recom_chain_iter end # this is a workaround (https://github.com/BenLauwens/ResumableFunctions.jl/issues/45)
@@ -299,6 +343,7 @@ function recom_chain_iter end # this is a workaround (https://github.com/BenLauw
     rng::AbstractRNG = Random.default_rng(),
     no_self_loops::Bool = false,
     progress_bar = true,
+    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
 ) where {F<:Function,S<:AbstractScore}
     if progress_bar
         iter = ProgressBar(1:num_steps)
@@ -309,7 +354,14 @@ function recom_chain_iter end # this is a workaround (https://github.com/BenLauw
     for steps_taken in iter
         step_completed = false
         while !step_completed
-            proposal = get_valid_proposal(graph, partition, pop_constraint, rng, num_tries)
+            proposal = get_valid_proposal(
+                graph,
+                partition,
+                pop_constraint,
+                rng,
+                num_tries;
+                region_surcharges = region_surcharges,
+            )
             custom_acceptance = acceptance_fn !== always_accept
             update_partition!(partition, graph, proposal, custom_acceptance)
             if custom_acceptance && !satisfies_acceptance_fn(partition, acceptance_fn, rng)
@@ -332,23 +384,24 @@ function recom_chain_iter end # this is a workaround (https://github.com/BenLauw
 end
 
 """
-    recom_chain(graph::BaseGraph,
-                partition::Partition,
+    recom_chain(graph::AbstractGraph,
+                partition::AbstractPartition,
                 pop_constraint::PopulationConstraint,
                 num_steps::Int,
                 scores::Array{S, 1};
                 num_tries::Int=3,
                 acceptance_fn::F=always_accept,
                 rng::AbstractRNG=Random.default_rng(),
-                no_self_loops::Bool=false)::ChainScoreData where {F<:Function, S<:AbstractScore}
+                no_self_loops::Bool=false,
+                region_surcharges::Dict{String,Float64}=Dict{String,Float64}())::ChainScoreData where {F<:Function, S<:AbstractScore}
 
 Runs a Markov Chain for `num_steps` steps using ReCom. Returns a `ChainScoreData`
 object which can be queried to retrieve the values of every score at each
 step of the chain.
 
 *Arguments:*
-- graph:            `BaseGraph`
-- partition:        `Partition` with the plan information
+- graph:            `AbstractGraph`
+- partition:        `AbstractPartition` with the plan information
 - pop_constraint:   `PopulationConstraint`
 - num_steps:        Number of steps to run the chain for
 - scores:           Array of `AbstractScore`s to capture at each step
@@ -367,6 +420,7 @@ step of the chain.
                     function is satisfied. BEWARE - this can create
                     infinite loops if the acceptance function is never
                     satisfied!
+- region_surcharges: Optional region-boundary MST surcharges
 - progress_bar      If this is true, a progress bar will be printed to stdout.
 """
 function recom_chain(
@@ -380,6 +434,7 @@ function recom_chain(
     rng::AbstractRNG = Random.default_rng(),
     no_self_loops::Bool = false,
     progress_bar = true,
+    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
 )::ChainScoreData where {F<:Function,S<:AbstractScore}
     first_scores = score_initial_partition(graph, partition, scores)
     chain_scores = ChainScoreData(deepcopy(scores), [first_scores])
@@ -395,6 +450,7 @@ function recom_chain(
         rng,
         no_self_loops,
         progress_bar,
+        region_surcharges,
     )
         push!(chain_scores.step_values, score_vals)
     end

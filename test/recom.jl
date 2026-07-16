@@ -90,4 +90,25 @@
         # should have been called until it started returning 1.0
         @test f(nothing) == 1.0
     end
+
+    @testset "region-aware recom_chain kwargs" begin
+        graph = BaseGraph(
+            square_grid_filepath,
+            "population";
+            region_columns = ["assignment"],
+        )
+        partition = Partition(graph, "assignment")
+        pop_constraint = PopulationConstraint(graph, partition, 10.0)
+        scores = [DistrictAggregate("purple")]
+        chain_data = recom_chain(
+            graph,
+            partition,
+            pop_constraint,
+            1,
+            scores;
+            region_surcharges = Dict("assignment" => 0.5),
+            progress_bar = false,
+        )
+        @test length(chain_data.step_values) == 2  # initial + 1 step
+    end
 end

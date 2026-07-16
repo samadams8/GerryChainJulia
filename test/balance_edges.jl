@@ -80,3 +80,64 @@ end
 
     @test correct_mst == GerryChain.kruskal_mst(graph, is, nodes, weights)
 end
+
+@testset "Weighted / region-aware Kruskal MST" begin
+    # Triangle: nodes 1-2-3 with edges e12, e23, e13
+    # Huge penalty on e13 should exclude it from the MST.
+    simple = SimpleGraph(3)
+    add_edge!(simple, 1, 2)
+    add_edge!(simple, 2, 3)
+    add_edge!(simple, 1, 3)
+    edge_src_arr, edge_dst_arr = GerryChain.edges_from_graph(simple)
+    adj = GerryChain.adjacency_matrix_from_graph(simple)
+    nbrs = GerryChain.neighbors_from_graph(simple)
+    attrs = [Dict{String,Any}("pop" => 1) for _ = 1:3]
+    tri = BaseGraph(
+        3,
+        3,
+        3,
+        [1, 1, 1],
+        adj,
+        edge_src_arr,
+        edge_dst_arr,
+        nbrs,
+        simple,
+        attrs,
+        zeros(Float64, 3),
+        Dict{String,Vector{UInt32}}(),
+    )
+    e12 = adj[1, 2]
+    e23 = adj[2, 3]
+    e13 = adj[1, 3]
+    edges = [e12, e23, e13]
+    nodes = [1, 2, 3]
+
+    set_edge_penalty!(tri, 1, 3, 1e9)
+    rng = MersenneTwister(1)
+    mst = weighted_kruskal_mst(tri, edges, nodes, rng)
+    @test length(mst) == 2
+    @test !(e13 in mst)
+    @test e12 in mst
+    @test e23 in mst
+
+    # Reset penalties; huge region surcharge should prefer in-region edges
+    fill!(tri.edge_penalties, 0.0)
+    add_region_column!(tri, "county", UInt32[1, 1, 2])
+    # edge 1-2 is in-region; 2-3 and 1-3 cross
+    rng = MersenneTwister(2)
+    mst2 = weighted_kruskal_mst(
+        tri,
+        edges,
+        nodes,
+        rng;
+        region_surcharges = Dict("county" => 1e9),
+    )
+    @test length(mst2) == 2
+    @test e12 in mst2  # in-region edge must be included
+
+    # Legacy weights-vector overload (UTGC MST_FUNC)
+    weights = [0.1, 0.2, 1e9]
+    mst3 = weighted_kruskal_mst(tri, edges, nodes, weights)
+    @test mst3 == GerryChain.kruskal_mst(tri, edges, nodes, Float64.(weights))
+    @test !(e13 in mst3)
+end

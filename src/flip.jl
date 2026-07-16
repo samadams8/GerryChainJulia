@@ -14,39 +14,45 @@ Proposes a random boundary flip from the partition.
               (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
 """
 function propose_random_flip(
-    graph::BaseGraph,
-    partition::Partition,
+    graph::AbstractGraph,
+    partition::AbstractPartition,
     rng::AbstractRNG = Random.default_rng(),
 )
-    if partition.num_cut_edges == 0
+    if num_cut_edges(partition) == 0
         throw(ArgumentError("No cut edges in the districting plan"))
     end
     # select a random cut edge
-    cut_edge_idx = rand(rng, 1:partition.num_cut_edges)
+    cut_edge_idx = rand(rng, 1:num_cut_edges(partition))
     cut_edge_tracker = 0
     edge_idx = 0
+    cut = cut_edges(partition)
     # iterate through array of bools indicating cut edge, stop at the
     # randomly chosen index-th edge
-    for i = 1:graph.num_edges
-        cut_edge_tracker += partition.cut_edges[i]
+    for i = 1:num_edges(graph)
+        cut_edge_tracker += cut[i]
         if cut_edge_tracker == cut_edge_idx
             edge_idx = i
             break
         end
     end
     # randomly choose which of the nodes from the edge get flipped
-    edge = (graph.edge_src[edge_idx], graph.edge_dst[edge_idx])
+    srcs = edge_src(graph)
+    dsts = edge_dst(graph)
+    edge = (srcs[edge_idx], dsts[edge_idx])
     index = rand(rng, (0, 1))
     flipped_node, other_node = edge[index+1], edge[2-index]
-    node_pop = graph.populations[flipped_node]
+    node_pop = populations(graph)[flipped_node]
+    asg = assignments(partition)
+    pops = dist_populations(partition)
+    nodes = dist_nodes(partition)
     # old district
-    D₁ = partition.assignments[flipped_node]
-    D₁_pop = partition.dist_populations[D₁] - node_pop
-    D₁_n = setdiff(partition.dist_nodes[D₁], flipped_node)
+    D₁ = asg[flipped_node]
+    D₁_pop = pops[D₁] - node_pop
+    D₁_n = setdiff(nodes[D₁], flipped_node)
     # new district
-    D₂ = partition.assignments[other_node]
-    D₂_pop = partition.dist_populations[D₂] + node_pop
-    D₂_n = union(partition.dist_nodes[D₂], flipped_node)
+    D₂ = asg[other_node]
+    D₂_pop = pops[D₂] + node_pop
+    D₂_n = union(nodes[D₂], flipped_node)
     return FlipProposal(flipped_node, D₁, D₂, D₁_pop, D₂_pop, D₁_n, D₂_n)
 end
 
@@ -61,8 +67,8 @@ Helper function that checks whether a proposal both (a) is population
 balanced and (b) does not break contiguity.
 """
 function is_valid(
-    graph::BaseGraph,
-    partition::Partition,
+    graph::AbstractGraph,
+    partition::AbstractPartition,
     pop_constraint::PopulationConstraint,
     cont_constraint::ContiguityConstraint,
     proposal::FlipProposal,
@@ -72,8 +78,8 @@ function is_valid(
 end
 
 """
-    get_valid_proposal(graph::BaseGraph,
-                       partition::Partition,
+    get_valid_proposal(graph::AbstractGraph,
+                       partition::AbstractPartition,
                        pop_constraint::PopulationConstraint,
                        cont_constraint::ContiguityConstraint,
                        rng::AbstractRNG)
@@ -82,8 +88,8 @@ Returns a population balanced FlipProposal subject to a contiguity
 constraint.
 """
 function get_valid_proposal(
-    graph::BaseGraph,
-    partition::Partition,
+    graph::AbstractGraph,
+    partition::AbstractPartition,
     pop_constraint::PopulationConstraint,
     cont_constraint::ContiguityConstraint,
     rng::AbstractRNG = Random.default_rng(),
@@ -98,22 +104,23 @@ end
 
 """
     update_partition!(partition::Partition,
-                      graph::BaseGraph,
+                      graph::AbstractGraph,
                       proposal::FlipProposal,
                       copy_parent::Bool=false)
 
 Updates the `Partition` with the `FlipProposal`.
+
+When `copy_parent` is true, a field-wise snapshot of the current partition
+is stored in `partition.parent` (no recursive `deepcopy`).
 """
 function update_partition!(
     partition::Partition,
-    graph::BaseGraph,
+    graph::AbstractGraph,
     proposal::FlipProposal,
     copy_parent::Bool = false,
 )
     if copy_parent
-        partition.parent = nothing
-        old_partition = deepcopy(partition)
-        partition.parent = old_partition
+        partition.parent = _copy_partition_fields(partition; parent = nothing)
     end
 
     # update district population counts

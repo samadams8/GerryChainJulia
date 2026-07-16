@@ -1,4 +1,6 @@
-mutable struct Partition
+abstract type AbstractPartition end
+
+mutable struct Partition <: AbstractPartition
     num_dists::Int
     num_cut_edges::Int
     assignments::Array{Int,1}                  # of length(num_nodes)
@@ -6,7 +8,51 @@ mutable struct Partition
     cut_edges::Array{Int,1}                    # of length(num_edges)
     dist_adj::SparseMatrixCSC{Int,Int}
     dist_nodes::Array{BitSet}
-    parent::Union{Partition,Nothing}           # optional parent partition
+    parent::Union{AbstractPartition,Nothing}   # optional parent partition
+end
+
+# --- AbstractPartition accessors (default concrete implementations) ---
+
+num_dists(p::Partition) = p.num_dists
+num_cut_edges(p::Partition) = p.num_cut_edges
+assignments(p::Partition) = p.assignments
+dist_populations(p::Partition) = p.dist_populations
+cut_edges(p::Partition) = p.cut_edges
+dist_adj(p::Partition) = p.dist_adj
+dist_nodes(p::Partition) = p.dist_nodes
+Base.parent(p::Partition) = p.parent
+
+"""
+    _copy_partition_fields(p::Partition; parent=nothing)::Partition
+
+Field-wise copy of a `Partition` (arrays and BitSets). Does not recurse into
+an existing parent chain. Used by `clone_for_update` and parent snapshots.
+"""
+function _copy_partition_fields(
+    p::Partition;
+    parent::Union{AbstractPartition,Nothing} = nothing,
+)::Partition
+    return Partition(
+        p.num_dists,
+        p.num_cut_edges,
+        copy(p.assignments),
+        copy(p.dist_populations),
+        copy(p.cut_edges),
+        copy(p.dist_adj),
+        BitSet[copy(s) for s in p.dist_nodes],
+        parent,
+    )
+end
+
+"""
+    clone_for_update(p::AbstractPartition)::AbstractPartition
+
+Return a copy-on-write clone of `p` suitable for mutation. Mutable partition
+fields are copied; the underlying graph is not involved. The clone's `parent`
+points at `p`. Does not recurse into an existing parent chain.
+"""
+function clone_for_update(p::Partition)::Partition
+    return _copy_partition_fields(p; parent = p)
 end
 
 """
@@ -74,7 +120,7 @@ function get_assignments(
             processed_assignments[i] = raw_value
         elseif raw_value isa String
             try
-                processed_assignments[i] = parse(Int, raw_assignment)
+                processed_assignments[i] = parse(Int, raw_value)
             catch exception # if the String could not be read as an int
                 if !haskey(assignment_to_num, raw_value)
                     assignment_to_num[raw_value] = length(assignment_to_num) + 1
@@ -176,11 +222,16 @@ end
 
 Randomly sample two adjacent districts and return them.
 """
-function sample_adjacent_districts_randomly(partition::Partition, rng::AbstractRNG)
+function sample_adjacent_districts_randomly(
+    partition::AbstractPartition,
+    rng::AbstractRNG,
+)
+    n = num_dists(partition)
+    adj = dist_adj(partition)
     while true
-        D₁ = rand(rng, 1:partition.num_dists)
-        D₂ = rand(rng, 1:partition.num_dists)
-        if partition.dist_adj[D₁, D₂] != 0
+        D₁ = rand(rng, 1:n)
+        D₂ = rand(rng, 1:n)
+        if adj[D₁, D₂] != 0
             return D₁, D₂
         end
     end
@@ -193,13 +244,16 @@ end
 Updates the district adjacency matrix and cut edges
 to reflect the partition's assignments for each node.
 """
-function update_partition_adjacency(partition::Partition, graph::BaseGraph)
+function update_partition_adjacency(partition::Partition, graph::AbstractGraph)
     partition.dist_adj = spzeros(Int, partition.num_dists, partition.num_dists)
     partition.num_cut_edges = 0
+    srcs = edge_src(graph)
+    dsts = edge_dst(graph)
+    n_edges = num_edges(graph)
 
-    for i = 1:graph.num_edges
-        src_assignment = partition.assignments[graph.edge_src[i]]
-        dst_assignment = partition.assignments[graph.edge_dst[i]]
+    for i = 1:n_edges
+        src_assignment = partition.assignments[srcs[i]]
+        dst_assignment = partition.assignments[dsts[i]]
 
         if src_assignment != dst_assignment
             partition.cut_edges[i] = 1
