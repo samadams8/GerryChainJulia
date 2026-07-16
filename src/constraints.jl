@@ -11,7 +11,9 @@ end
 Initializes and returns a `ContiguityConstraint` object.
 """
 struct ContiguityConstraint <: AbstractConstraint
-    # No metadata (for now); implements the `AbstractConstraint` interface.
+    # Workaround for adverse type inference with @resumable macro
+    dummy::Bool
+    ContiguityConstraint() = new(true) 
 end
 
 """

@@ -198,13 +198,16 @@ function flip_chain_iter end # this is a workaround (https://github.com/BenLauwe
                 partition = partition.parent
                 # if user specifies this behavior, we do not increment the steps
                 # taken if the acceptance function fails.
-                if no_self_loops
-                    continue
+                if !no_self_loops
+                    score_vals = score_partition_from_proposal(graph, partition, proposal, scores)
+                    @yield partition, score_vals
+                    step_completed = true
                 end
+            else
+                score_vals = score_partition_from_proposal(graph, partition, proposal, scores)
+                @yield partition, score_vals
+                step_completed = true
             end
-            score_vals = score_partition_from_proposal(graph, partition, proposal, scores)
-            @yield partition, score_vals
-            step_completed = true
         end
     end
 end
