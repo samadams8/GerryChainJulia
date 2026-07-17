@@ -130,15 +130,16 @@ function update_partition!(
     # relabel node with new district
     partition.assignments[proposal.node] = proposal.D₂
 
-    pop!(partition.dist_nodes[proposal.D₁], proposal.node)
-    push!(partition.dist_nodes[proposal.D₂], proposal.node)
+    # Replace (do not mutate shared CoW BitSets)
+    partition.dist_nodes[proposal.D₁] = proposal.D₁_nodes
+    partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 
     update_partition_adjacency(partition, graph)
 end
 
 """
-    flip_chain_iter(graph::BaseGraph,
-               partition::Partition,
+    flip_chain_iter(graph::AbstractGraph,
+               partition::AbstractPartition,
                pop_constraint::PopulationConstraint,
                cont_constraint::ContiguityConstraint,
                num_steps::Int,
@@ -154,8 +155,8 @@ will change in-place with each iteration -- a `deepcopy()` is needed if you wish
 to interact with the `Partition` object outside of the for loop.
 
 *Arguments:*
-- graph:              `BaseGraph`
-- partition:          `Partition` with the plan information
+- graph:              `AbstractGraph`
+- partition:          `AbstractPartition` with the plan information
 - pop_constraint:     `PopulationConstraint`
 - cont_constraint:    `ContiguityConstraint`
 - num_steps:          Number of steps to run the chain for
@@ -175,8 +176,28 @@ to interact with the `Partition` object outside of the for loop.
                       satisfied!
 - progress_bar        If this is true, a progress bar will be printed to stdout.
 """
-function flip_chain_iter end # this is a workaround (https://github.com/BenLauwens/ResumableFunctions.jl/issues/45)
-@resumable function flip_chain_iter(
+function flip_chain_iter(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    pop_constraint::PopulationConstraint,
+    cont_constraint::ContiguityConstraint,
+    num_steps::Int,
+    scores::Array{S,1};
+    kwargs...,
+) where {S<:AbstractScore}
+    return _flip_chain_iter(
+        graph,
+        partition,
+        pop_constraint,
+        cont_constraint,
+        num_steps,
+        scores;
+        kwargs...,
+    )
+end
+
+function _flip_chain_iter end # ResumableFunctions workaround
+@resumable function _flip_chain_iter(
     graph::BaseGraph,
     partition::Partition,
     pop_constraint::PopulationConstraint,
@@ -197,7 +218,7 @@ function flip_chain_iter end # this is a workaround (https://github.com/BenLauwe
     for steps_taken in iter
         step_completed = false
         while !step_completed
-            proposal = get_valid_proposal(graph, partition, pop_constraint, cont_constraint)
+            proposal = get_valid_proposal(graph, partition, pop_constraint, cont_constraint, rng)
             custom_acceptance = acceptance_fn !== always_accept
             update_partition!(partition, graph, proposal, custom_acceptance)
             if custom_acceptance && !satisfies_acceptance_fn(partition, acceptance_fn, rng)
@@ -220,8 +241,8 @@ function flip_chain_iter end # this is a workaround (https://github.com/BenLauwe
 end
 
 """
-    flip_chain(graph::BaseGraph,
-               partition::Partition,
+    flip_chain(graph::AbstractGraph,
+               partition::AbstractPartition,
                pop_constraint::PopulationConstraint,
                cont_constraint::ContiguityConstraint,
                num_steps::Int,
@@ -235,8 +256,8 @@ a `ChainScoreData` object which can be queried to retrieve the values of
 every score at each step of the chain.
 
 *Arguments:*
-- graph:              `BaseGraph`
-- partition:          `Partition` with the plan information
+- graph:              `AbstractGraph`
+- partition:          `AbstractPartition` with the plan information
 - pop_constraint:     `PopulationConstraint`
 - cont_constraint:    `ContiguityConstraint`
 - num_steps:          Number of steps to run the chain for
@@ -257,6 +278,32 @@ every score at each step of the chain.
 - progress_bar        If this is true, a progress bar will be printed to stdout.
 """
 function flip_chain(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    pop_constraint::PopulationConstraint,
+    cont_constraint::ContiguityConstraint,
+    num_steps::Int,
+    scores::Array{S,1};
+    acceptance_fn::F = always_accept,
+    rng::AbstractRNG = Random.default_rng(),
+    no_self_loops::Bool = false,
+    progress_bar = true,
+)::ChainScoreData where {F<:Function,S<:AbstractScore}
+    return _flip_chain(
+        graph,
+        partition,
+        pop_constraint,
+        cont_constraint,
+        num_steps,
+        scores;
+        acceptance_fn = acceptance_fn,
+        rng = rng,
+        no_self_loops = no_self_loops,
+        progress_bar = progress_bar,
+    )
+end
+
+function _flip_chain(
     graph::BaseGraph,
     partition::Partition,
     pop_constraint::PopulationConstraint,
@@ -271,7 +318,7 @@ function flip_chain(
     first_scores = score_initial_partition(graph, partition, scores)
     chain_scores = ChainScoreData(deepcopy(scores), [first_scores])
 
-    for (_, score_vals) in flip_chain_iter(
+    for (_, score_vals) in _flip_chain_iter(
         graph,
         partition,
         pop_constraint,

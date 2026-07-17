@@ -86,10 +86,10 @@
 
         # modify election counts so Democrats win districts 1 & 2, Republicans
         # win districts 3 & 4
-        graph.attributes[1]["electionD"] = 3
-        graph.attributes[3]["electionD"] = 3
-        graph.attributes[9]["electionD"] = 1
-        graph.attributes[11]["electionD"] = 1
+        set_attribute!(graph, 1, "electionD", 3)
+        set_attribute!(graph, 3, "electionD", 3)
+        set_attribute!(graph, 9, "electionD", 1)
+        set_attribute!(graph, 11, "electionD", 1)
         update_vote_counts(graph, partition, election_tracker)
 
         d_seats_score = seats_won("test", election, "electionD")
@@ -122,7 +122,7 @@
         @test r_mm_score == 0
 
         # District 1 vote counts: 4 D, 6 R
-        graph.attributes[1]["electionD"] = 0
+        set_attribute!(graph, 1, "electionD", 0)
         update_vote_counts(graph, partition, election_tracker)
 
         # Measure mean median
@@ -144,10 +144,10 @@
         # so wasted votes for R is (6*4) = 24, while wasted votes for D is
         # (1 * 4) = 4
         graph = BaseGraph(square_grid_filepath, "population")
-        graph.attributes[1]["electionD"] = 4
-        graph.attributes[3]["electionD"] = 4
-        graph.attributes[9]["electionD"] = 4
-        graph.attributes[11]["electionD"] = 4
+        set_attribute!(graph, 1, "electionD", 4)
+        set_attribute!(graph, 3, "electionD", 4)
+        set_attribute!(graph, 9, "electionD", 4)
+        set_attribute!(graph, 11, "electionD", 4)
 
         partition = Partition(graph, "assignment")
         election =

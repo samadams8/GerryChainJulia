@@ -185,12 +185,119 @@ function get_balanced_proposal(
 end
 
 """
+    _spanning_tree(graph, edges, nodes, rng; tree_method, region_surcharges)
+
+Build a spanning tree on the induced subgraph. `:wilson` draws a uniform
+spanning tree (penalties / region surcharges are ignored). `:kruskal` uses
+random or weighted Kruskal.
+"""
+function _spanning_tree(
+    graph::AbstractGraph,
+    edges::Array{Int,1},
+    nodes::Array{Int,1},
+    rng::AbstractRNG;
+    tree_method::Symbol = :kruskal,
+    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    scratch::Union{MSTScratch,Nothing} = nothing,
+)::BitSet
+    if tree_method === :wilson
+        return wilson_ust(graph, edges, nodes, rng)
+    elseif tree_method !== :kruskal
+        throw(ArgumentError("tree_method must be :kruskal or :wilson, got $(tree_method)"))
+    end
+
+    use_weighted =
+        !isempty(region_surcharges) || any(!iszero, edge_penalties(graph))
+    if scratch === nothing
+        return if use_weighted
+            weighted_kruskal_mst(
+                graph,
+                edges,
+                nodes,
+                rng;
+                region_surcharges = region_surcharges,
+            )
+        else
+            random_kruskal_mst(graph, edges, nodes, rng)
+        end
+    end
+
+    if use_weighted
+        build_mst_weights!(
+            scratch,
+            graph,
+            edges,
+            rng;
+            region_surcharges = region_surcharges,
+        )
+    else
+        _ensure_mst_scratch!(
+            scratch,
+            length(edges),
+            isempty(nodes) ? 0 : maximum(nodes),
+        )
+        @inbounds for i = 1:length(edges)
+            scratch.weights[i] = rand(rng)
+        end
+    end
+    return kruskal_mst!(scratch, graph, edges, nodes, scratch.weights)
+end
+
+"""
+    _try_valid_proposal(graph, partition, pop_constraint, rng, num_tries;
+                        tree_method, region_surcharges, scratch)
+
+Attempt one subgraph sample with up to `num_tries` spanning trees.
+Returns a `RecomProposal` or `nothing`.
+"""
+function _try_valid_proposal(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    pop_constraint::PopulationConstraint,
+    rng::AbstractRNG,
+    num_tries::Int;
+    tree_method::Symbol = :kruskal,
+    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    scratch::Union{MSTScratch,Nothing} = nothing,
+)
+    D₁, D₂, sg_edges, sg_nodes = sample_subgraph(graph, partition, rng)
+    sg_node_list = collect(sg_nodes)
+
+    for _ = 1:num_tries
+        mst_edges = _spanning_tree(
+            graph,
+            sg_edges,
+            sg_node_list,
+            rng;
+            tree_method = tree_method,
+            region_surcharges = region_surcharges,
+            scratch = scratch,
+        )
+        proposal = get_balanced_proposal(
+            graph,
+            mst_edges,
+            sg_nodes,
+            partition,
+            pop_constraint,
+            D₁,
+            D₂,
+        )
+        if proposal isa RecomProposal
+            return proposal
+        end
+    end
+    return nothing
+end
+
+"""
     get_valid_proposal(graph::AbstractGraph,
                        partition::AbstractPartition,
                        pop_constraint::PopulationConstraint,
                        rng::AbstractRNG,
                        num_tries::Int=3;
-                       region_surcharges::Dict{String,Float64}=Dict{String,Float64}())
+                       region_surcharges=Dict{String,Float64}(),
+                       tree_method::Symbol=:kruskal,
+                       n_parallel::Int=1)
 
 *Returns* a population balanced proposal.
 
@@ -205,6 +312,11 @@ end
                       (e.g. `Random.default_rng()` or `MersenneTwister(1234)`)
     - region_surcharges: Optional per-region-column surcharges added to MST
                       weights when an edge crosses a region boundary
+                      (Kruskal only; ignored for `:wilson`)
+    - tree_method:    `:kruskal` (default) or `:wilson` (uniform spanning tree)
+    - n_parallel:     number of concurrent proposal attempts (`1` = serial).
+                      With `n_parallel > 1`, tasks use independent RNGs; the
+                      lowest task index among successes in a batch wins.
 """
 function get_valid_proposal(
     graph::AbstractGraph,
@@ -213,42 +325,54 @@ function get_valid_proposal(
     rng::AbstractRNG,
     num_tries::Int = 3;
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    tree_method::Symbol = :kruskal,
+    n_parallel::Int = 1,
 )
-    use_weighted =
-        !isempty(region_surcharges) || any(!iszero, edge_penalties(graph))
+    n_parallel < 1 && throw(ArgumentError("n_parallel must be ≥ 1"))
 
-    while true
-        D₁, D₂, sg_edges, sg_nodes = sample_subgraph(graph, partition, rng)
-        sg_node_list = collect(sg_nodes)
-
-        for _ = 1:num_tries
-            mst_edges = if use_weighted
-                weighted_kruskal_mst(
-                    graph,
-                    sg_edges,
-                    sg_node_list,
-                    rng;
-                    region_surcharges = region_surcharges,
-                )
-            else
-                random_kruskal_mst(graph, sg_edges, sg_node_list, rng)
-            end
-
-            # see if we can get a population-balanced cut in this mst
-            proposal = get_balanced_proposal(
+    if n_parallel == 1
+        while true
+            proposal = _try_valid_proposal(
                 graph,
-                mst_edges,
-                sg_nodes,
                 partition,
                 pop_constraint,
-                D₁,
-                D₂,
+                rng,
+                num_tries;
+                tree_method = tree_method,
+                region_surcharges = region_surcharges,
             )
+            proposal !== nothing && return proposal
+        end
+    end
 
-            if proposal isa RecomProposal
-                return proposal
+    while true
+        seeds = [rand(rng, UInt64) for _ = 1:n_parallel]
+        tasks = map(1:n_parallel) do i
+            Threads.@spawn begin
+                task_rng = Random.MersenneTwister(seeds[i])
+                scratch = MSTScratch()
+                _try_valid_proposal(
+                    graph,
+                    partition,
+                    pop_constraint,
+                    task_rng,
+                    num_tries;
+                    tree_method = tree_method,
+                    region_surcharges = region_surcharges,
+                    scratch = scratch,
+                )
             end
         end
+        results = fetch.(tasks)
+        best = nothing
+        best_idx = typemax(Int)
+        for (i, result) in enumerate(results)
+            if result isa RecomProposal && i < best_idx
+                best = result
+                best_idx = i
+            end
+        end
+        best !== nothing && return best
     end
 end
 
@@ -284,6 +408,7 @@ function update_partition!(
         partition.assignments[node] = proposal.D₂
     end
 
+    # Replace (do not mutate shared BitSets from a CoW clone)
     partition.dist_nodes[proposal.D₁] = proposal.D₁_nodes
     partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 
@@ -300,7 +425,9 @@ end
                 acceptance_fn::F=always_accept,
                 rng::AbstractRNG=Random.default_rng(),
                 no_self_loops::Bool=false,
-                region_surcharges::Dict{String,Float64}=Dict{String,Float64}()) where {F<:Function,S<:AbstractScore}
+                region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
+                tree_method::Symbol=:kruskal,
+                n_parallel::Int=1) where {F<:Function,S<:AbstractScore}
 
 Runs a Markov Chain for `num_steps` steps using ReCom. Returns an iterator
 of `(Partition, score_vals)`. Note that `Partition` is mutable and will change
@@ -328,11 +455,24 @@ with the `Partition` object outside of the for loop.
                     function is satisfied. BEWARE - this can create
                     infinite loops if the acceptance function is never
                     satisfied!
-- region_surcharges: Optional region-boundary MST surcharges
+- region_surcharges: Optional region-boundary MST surcharges (Kruskal only)
+- tree_method:      `:kruskal` or `:wilson`
+- n_parallel:       concurrent proposal attempts per step (default `1`)
 - progress_bar      If this is true, a progress bar will be printed to stdout.
 """
-function recom_chain_iter end # this is a workaround (https://github.com/BenLauwens/ResumableFunctions.jl/issues/45)
-@resumable function recom_chain_iter(
+function recom_chain_iter(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    pop_constraint::PopulationConstraint,
+    num_steps::Int,
+    scores::Array{S,1};
+    kwargs...,
+) where {S<:AbstractScore}
+    return _recom_chain_iter(graph, partition, pop_constraint, num_steps, scores; kwargs...)
+end
+
+function _recom_chain_iter end # ResumableFunctions workaround
+@resumable function _recom_chain_iter(
     graph::BaseGraph,
     partition::Partition,
     pop_constraint::PopulationConstraint,
@@ -344,6 +484,8 @@ function recom_chain_iter end # this is a workaround (https://github.com/BenLauw
     no_self_loops::Bool = false,
     progress_bar = true,
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    tree_method::Symbol = :kruskal,
+    n_parallel::Int = 1,
 ) where {F<:Function,S<:AbstractScore}
     if progress_bar
         iter = ProgressBar(1:num_steps)
@@ -361,6 +503,8 @@ function recom_chain_iter end # this is a workaround (https://github.com/BenLauw
                 rng,
                 num_tries;
                 region_surcharges = region_surcharges,
+                tree_method = tree_method,
+                n_parallel = n_parallel,
             )
             custom_acceptance = acceptance_fn !== always_accept
             update_partition!(partition, graph, proposal, custom_acceptance)
@@ -393,7 +537,9 @@ end
                 acceptance_fn::F=always_accept,
                 rng::AbstractRNG=Random.default_rng(),
                 no_self_loops::Bool=false,
-                region_surcharges::Dict{String,Float64}=Dict{String,Float64}())::ChainScoreData where {F<:Function, S<:AbstractScore}
+                region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
+                tree_method::Symbol=:kruskal,
+                n_parallel::Int=1)::ChainScoreData where {F<:Function, S<:AbstractScore}
 
 Runs a Markov Chain for `num_steps` steps using ReCom. Returns a `ChainScoreData`
 object which can be queried to retrieve the values of every score at each
@@ -420,10 +566,44 @@ step of the chain.
                     function is satisfied. BEWARE - this can create
                     infinite loops if the acceptance function is never
                     satisfied!
-- region_surcharges: Optional region-boundary MST surcharges
+- region_surcharges: Optional region-boundary MST surcharges (Kruskal only)
+- tree_method:      `:kruskal` or `:wilson`
+- n_parallel:       concurrent proposal attempts per step (default `1`)
 - progress_bar      If this is true, a progress bar will be printed to stdout.
 """
 function recom_chain(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    pop_constraint::PopulationConstraint,
+    num_steps::Int,
+    scores::Array{S,1};
+    num_tries::Int = 3,
+    acceptance_fn::F = always_accept,
+    rng::AbstractRNG = Random.default_rng(),
+    no_self_loops::Bool = false,
+    progress_bar = true,
+    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    tree_method::Symbol = :kruskal,
+    n_parallel::Int = 1,
+)::ChainScoreData where {F<:Function,S<:AbstractScore}
+    return _recom_chain(
+        graph,
+        partition,
+        pop_constraint,
+        num_steps,
+        scores;
+        num_tries = num_tries,
+        acceptance_fn = acceptance_fn,
+        rng = rng,
+        no_self_loops = no_self_loops,
+        progress_bar = progress_bar,
+        region_surcharges = region_surcharges,
+        tree_method = tree_method,
+        n_parallel = n_parallel,
+    )
+end
+
+function _recom_chain(
     graph::BaseGraph,
     partition::Partition,
     pop_constraint::PopulationConstraint,
@@ -435,11 +615,13 @@ function recom_chain(
     no_self_loops::Bool = false,
     progress_bar = true,
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    tree_method::Symbol = :kruskal,
+    n_parallel::Int = 1,
 )::ChainScoreData where {F<:Function,S<:AbstractScore}
     first_scores = score_initial_partition(graph, partition, scores)
     chain_scores = ChainScoreData(deepcopy(scores), [first_scores])
 
-    for (_, score_vals) in recom_chain_iter(
+    for (_, score_vals) in _recom_chain_iter(
         graph,
         partition,
         pop_constraint,
@@ -451,6 +633,8 @@ function recom_chain(
         no_self_loops,
         progress_bar,
         region_surcharges,
+        tree_method,
+        n_parallel,
     )
         push!(chain_scores.step_values, score_vals)
     end

@@ -13,6 +13,7 @@ struct BaseGraph <: AbstractGraph
     attributes::Array{Dict{String,Any}}
     edge_penalties::Vector{Float64}       # of length(num_edges); index = edge id
     region_cols::Dict{String,Vector{UInt32}}  # dense region id columns
+    _attr_cache::Dict{String,Vector{Float64}}  # lazy dense attribute columns
 end
 
 """
@@ -52,6 +53,7 @@ function BaseGraph(
         attrs,
         zeros(Float64, num_edges),
         Dict{String,Vector{UInt32}}(),
+        Dict{String,Vector{Float64}}(),
     )
 end
 
@@ -234,6 +236,7 @@ function graph_from_shp(
         attributes,
         zeros(Float64, n_edges),
         region_cols,
+        Dict{String,Vector{Float64}}(),
     )
 end
 
@@ -356,6 +359,7 @@ function graph_from_json(
         attributes,
         zeros(Float64, num_edges),
         region_cols,
+        Dict{String,Vector{Float64}}(),
     )
 end
 
@@ -555,6 +559,97 @@ function set_edge_penalties_from_pairs!(g::BaseGraph, penalties::AbstractVector{
     )
     for i = 1:g.num_edges
         g.edge_penalties[i] = Float64(penalties[i])
+    end
+    return g
+end
+
+# --- Lazy Float64 attribute column cache ---
+
+function _materialize_attribute_column(g::BaseGraph, key::String)::Vector{Float64}
+    n = g.num_nodes
+    col = Vector{Float64}(undef, n)
+    @inbounds for i = 1:n
+        raw = g.attributes[i][key]
+        if raw isa Number
+            col[i] = Float64(raw)
+        else
+            throw(
+                ArgumentError(
+                    "Attribute \"$key\" at node $i has type $(typeof(raw)); expected Number. " *
+                    "Try coerce_aggregated_attributes! before scoring.",
+                ),
+            )
+        end
+    end
+    return col
+end
+
+"""
+    _attribute_vector(g::BaseGraph, key::AbstractString)::Vector{Float64}
+
+Internal cached dense attribute column (do not mutate). Materializes on first use.
+"""
+function _attribute_vector(g::BaseGraph, key::AbstractString)::Vector{Float64}
+    k = String(key)
+    cache = g._attr_cache
+    if haskey(cache, k)
+        return cache[k]
+    end
+    col = _materialize_attribute_column(g, k)
+    cache[k] = col
+    return col
+end
+
+"""
+    attribute_vector(g::BaseGraph, key::AbstractString)::Vector{Float64}
+
+Return a **copy** of the dense attribute column for `key` (safe to own; do not
+rely on mutating it to update the graph — use `set_attribute!` instead).
+"""
+function attribute_vector(g::BaseGraph, key::AbstractString)::Vector{Float64}
+    return copy(_attribute_vector(g, key))
+end
+
+"""
+    prefetch_attribute!(g::BaseGraph, key::AbstractString)
+
+Force materialization of the attribute cache for `key`.
+"""
+function prefetch_attribute!(g::BaseGraph, key::AbstractString)
+    _attribute_vector(g, key)
+    return g
+end
+
+"""
+    set_attribute!(g::BaseGraph, node::Int, key::AbstractString, value)
+
+Update a single node attribute and invalidate the cached column for `key`.
+"""
+function set_attribute!(g::BaseGraph, node::Int, key::AbstractString, value)
+    k = String(key)
+    g.attributes[node][k] = value
+    delete!(g._attr_cache, k)
+    return g
+end
+
+"""
+    set_attributes!(g::BaseGraph, key::AbstractString, values::AbstractVector)
+
+Replace attribute `key` on all nodes and refresh the cache entry.
+"""
+function set_attributes!(g::BaseGraph, key::AbstractString, values::AbstractVector)
+    length(values) == g.num_nodes || throw(
+        ArgumentError(
+            "values length ($(length(values))) must equal num_nodes ($(g.num_nodes))",
+        ),
+    )
+    k = String(key)
+    @inbounds for i = 1:g.num_nodes
+        g.attributes[i][k] = values[i]
+    end
+    delete!(g._attr_cache, k)
+    if values isa AbstractVector{<:Number}
+        g._attr_cache[k] = Float64.(values)
     end
     return g
 end

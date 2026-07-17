@@ -9,6 +9,8 @@
 
 `GerryChain` is a Julia package for building ensembles of districting plans using [Markov Chain Monte Carlo](https://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo) techniques. It is developed and maintained by the [Metric Geometry and Gerrymandering Group](https://www.mggg.org/) and our network of volunteers. We also have [a Python package of the same name](https://github.com/mggg/GerryChain).
 
+See [CHANGELOG.md](CHANGELOG.md) for recent performance-oriented changes (structural CoW partitions, lazy attribute cache, Wilson UST, parallel ReCom proposals). Current package version is **0.3.0**.
+
 The basic workflow is to start with the geometry of an initial plan and generate a large collection of sample plans for comparison. Usually, we will constrain these sampled plans in such a way that they perform at least as well as the initial plan according to traditional districting principles, such as population balance or compactness. Comparing the initial plan to the ensemble provides quantitative tools for measuring whether or not it is an outlier among the sampled plans.
 
 ## Getting set up

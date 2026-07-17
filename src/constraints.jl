@@ -8,12 +8,13 @@ end
 """
     ContiguityConstraint()
 
-Initializes and returns a `ContiguityConstraint` object.
+Initializes and returns a `ContiguityConstraint` object with reusable
+search buffers for Flip contiguity checks.
 """
-struct ContiguityConstraint <: AbstractConstraint
-    # Workaround for adverse type inference with @resumable macro
-    dummy::Bool
-    ContiguityConstraint() = new(true) 
+mutable struct ContiguityConstraint <: AbstractConstraint
+    visited::BitVector
+    queue::Vector{Int}
+    ContiguityConstraint() = new(BitVector(), sizehint!(Int[], 64))
 end
 
 """
@@ -96,15 +97,24 @@ function satisfy_constraint(
     end
     source_node = pop!(node_neighbors)
 
-    # DFS search to verify contiguity is not broken
+    n = num_nodes(graph)
+    visited = constraint.visited
+    if length(visited) != n
+        resize!(visited, n)
+    end
+    queue = constraint.queue
+
+    # BFS search to verify contiguity is not broken
     @inbounds for target_node in node_neighbors
-        visited = zeros(Bool, num_nodes(graph))
-        queue = Queue{Int}(64)  # TODO: auto-tune?
-        enqueue!(queue, target_node)
+        fill!(visited, false)
+        empty!(queue)
+        push!(queue, target_node)
         visited[target_node] = true
         found = false
-        while !isempty(queue)
-            curr_node = dequeue!(queue)
+        head = 1
+        while head <= length(queue)
+            curr_node = queue[head]
+            head += 1
             if curr_node == source_node
                 found = true
                 break
@@ -116,11 +126,11 @@ function satisfy_constraint(
                     neighbor != flip.node
                 )
                     visited[neighbor] = true
-                    enqueue!(queue, neighbor)
+                    push!(queue, neighbor)
                 end
             end
         end
-        if (isempty(queue) && !found)
+        if !found
             return false
         end
     end

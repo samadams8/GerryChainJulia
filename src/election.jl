@@ -36,13 +36,14 @@ function vote_updater(election::Election)::DistrictScore
             election results for that party in the specified district.
         """
         election.vote_counts[district, :] = zeros(length(election.parties))
-        # update vote counts
-        for node in nodes
-            for i = 1:length(election.parties)
-                party = election.parties[i]
-                party_votes = graph.attributes[node][party]
-                election.vote_counts[district, i] += party_votes
+        # update vote counts via cached dense attribute columns
+        for i = 1:length(election.parties)
+            col = _attribute_vector(graph, election.parties[i])
+            total = 0.0
+            @inbounds for node in nodes
+                total += col[node]
             end
+            election.vote_counts[district, i] = total
         end
         # update vote shares
         vote_totals = sum(election.vote_counts[district, :])

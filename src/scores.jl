@@ -170,13 +170,14 @@ function eval_score_on_district(
     district::Int,
 )::Number
     try
-        sum = 0
-        for node in partition.dist_nodes[district]
-            sum += graph.attributes[node][score.key]
+        col = _attribute_vector(graph, score.key)
+        s = 0.0
+        @inbounds for node in partition.dist_nodes[district]
+            s += col[node]
         end
-        return sum
+        return s
     catch e
-        if isa(e, MethodError)
+        if isa(e, MethodError) || isa(e, ArgumentError) || isa(e, KeyError)
             error_msg = string(
                 "The DistrictAggregate Score ",
                 score.name,
@@ -826,9 +827,11 @@ Coerces attribute `key` in `graph` to be of type `new_type` if it is of
 type String.
 """
 function coerce_attribute_type!(graph::BaseGraph, key::String, new_type::DataType)
+    changed = false
     for node = 1:graph.num_nodes
         if graph.attributes[node][key] isa String
             graph.attributes[node][key] = parse(new_type, graph.attributes[node][key])
+            changed = true
             @info string(
                 "Key ",
                 key,
@@ -837,6 +840,9 @@ function coerce_attribute_type!(graph::BaseGraph, key::String, new_type::DataTyp
                 new_type,
             ) maxlog = 1
         end
+    end
+    if changed
+        delete!(graph._attr_cache, key)
     end
 end
 

@@ -111,4 +111,61 @@
         )
         @test length(chain_data.step_values) == 2  # initial + 1 step
     end
+
+    @testset "wilson tree_method" begin
+        partition = Partition(graph, "assignment")
+        pop_constraint = PopulationConstraint(graph, partition, 10.0)
+        scores = [DistrictAggregate("purple")]
+        chain_data = recom_chain(
+            graph,
+            partition,
+            pop_constraint,
+            1,
+            scores;
+            tree_method = :wilson,
+            progress_bar = false,
+            rng = MersenneTwister(7),
+        )
+        @test length(chain_data.step_values) == 2
+    end
+
+    @testset "n_parallel proposals" begin
+        partition = Partition(graph, "assignment")
+        pop_constraint = PopulationConstraint(graph, partition, 10.0)
+        scores = [DistrictAggregate("purple")]
+        chain_data = recom_chain(
+            graph,
+            partition,
+            pop_constraint,
+            2,
+            scores;
+            n_parallel = 4,
+            progress_bar = false,
+            rng = MersenneTwister(11),
+        )
+        @test length(chain_data.step_values) == 3
+
+        # n_parallel=1 is seed-stable
+        p1 = Partition(graph, "assignment")
+        p2 = Partition(graph, "assignment")
+        s = [DistrictAggregate("purple")]
+        c1 = recom_chain(
+            graph, p1, pop_constraint, 2, s;
+            n_parallel = 1, progress_bar = false, rng = MersenneTwister(42),
+        )
+        c2 = recom_chain(
+            graph, p2, pop_constraint, 2, s;
+            n_parallel = 1, progress_bar = false, rng = MersenneTwister(42),
+        )
+        @test get_score_values(c1, "purple") == get_score_values(c2, "purple")
+    end
+
+    @testset "abstract-typed chain entrypoints" begin
+        g::GerryChain.AbstractGraph = BaseGraph(square_grid_filepath, "population")
+        p::GerryChain.AbstractPartition = Partition(g, "assignment")
+        pop_c = PopulationConstraint(g, p, 10.0)
+        scores = [DistrictAggregate("purple")]
+        data = recom_chain(g, p, pop_c, 1, scores; progress_bar = false, rng = MersenneTwister(3))
+        @test length(data.step_values) == 2
+    end
 end

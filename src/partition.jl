@@ -25,8 +25,8 @@ Base.parent(p::Partition) = p.parent
 """
     _copy_partition_fields(p::Partition; parent=nothing)::Partition
 
-Field-wise copy of a `Partition` (arrays and BitSets). Does not recurse into
-an existing parent chain. Used by `clone_for_update` and parent snapshots.
+Copy partition arrays; **share** `dist_nodes` BitSet references (callers must
+`copy` a BitSet before mutating it). Used by `clone_for_update` and parent snapshots.
 """
 function _copy_partition_fields(
     p::Partition;
@@ -39,20 +39,59 @@ function _copy_partition_fields(
         copy(p.dist_populations),
         copy(p.cut_edges),
         copy(p.dist_adj),
-        BitSet[copy(s) for s in p.dist_nodes],
+        BitSet[p.dist_nodes[i] for i = 1:p.num_dists],  # share BitSets
         parent,
+    )
+end
+
+"""
+    PartitionBuffers
+
+Optional reusable arrays for `clone_for_update`. After a clone, the buffers
+are refreshed so the returned `Partition` owns the previous vectors.
+"""
+mutable struct PartitionBuffers
+    assignments::Vector{Int}
+    dist_populations::Vector{Int}
+    cut_edges::Vector{Int}
+end
+
+function PartitionBuffers(p::Partition)
+    return PartitionBuffers(
+        similar(p.assignments),
+        similar(p.dist_populations),
+        similar(p.cut_edges),
     )
 end
 
 """
     clone_for_update(p::AbstractPartition)::AbstractPartition
 
-Return a copy-on-write clone of `p` suitable for mutation. Mutable partition
-fields are copied; the underlying graph is not involved. The clone's `parent`
-points at `p`. Does not recurse into an existing parent chain.
+Return a clone suitable for mutation. Arrays are copied; district `BitSet`s are
+shared until an update copies the districts it mutates. Graph is not involved.
 """
 function clone_for_update(p::Partition)::Partition
     return _copy_partition_fields(p; parent = p)
+end
+
+function clone_for_update(p::Partition, buffers::PartitionBuffers)::Partition
+    copyto!(buffers.assignments, p.assignments)
+    copyto!(buffers.dist_populations, p.dist_populations)
+    copyto!(buffers.cut_edges, p.cut_edges)
+    new_p = Partition(
+        p.num_dists,
+        p.num_cut_edges,
+        buffers.assignments,
+        buffers.dist_populations,
+        buffers.cut_edges,
+        copy(p.dist_adj),
+        BitSet[p.dist_nodes[i] for i = 1:p.num_dists],
+        p,
+    )
+    buffers.assignments = similar(p.assignments)
+    buffers.dist_populations = similar(p.dist_populations)
+    buffers.cut_edges = similar(p.cut_edges)
+    return new_p
 end
 
 """

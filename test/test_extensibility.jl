@@ -114,14 +114,25 @@ end
     cloned = clone_for_update(partition)
     @test parent(cloned) === partition
     @test cloned.assignments !== partition.assignments
-    @test cloned.dist_nodes[1] !== partition.dist_nodes[1]
+    # Structural CoW: untouched district BitSets are shared
+    @test cloned.dist_nodes[1] === partition.dist_nodes[1]
     @test cloned.dist_nodes[1] == partition.dist_nodes[1]
 
     cloned.assignments[1] = 99
     @test partition.assignments[1] == original_asg[1]
+    # Mutating a shared BitSet would alias — copy first (as Flip update does)
+    cloned.dist_nodes[1] = copy(cloned.dist_nodes[1])
     push!(cloned.dist_nodes[1], 99)
     @test !(99 in partition.dist_nodes[1])
     @test partition.dist_nodes[1] == original_dist1
+    @test cloned.dist_nodes[2] === partition.dist_nodes[2]  # still shared
+
+    # PartitionBuffers reuse path
+    buffers = PartitionBuffers(partition)
+    cloned2 = clone_for_update(partition, buffers)
+    @test parent(cloned2) === partition
+    @test cloned2.assignments !== partition.assignments
+    @test cloned2.dist_nodes[1] === partition.dist_nodes[1]
 
     # parent snapshot path avoids deepcopy
     proposal = FlipProposal(

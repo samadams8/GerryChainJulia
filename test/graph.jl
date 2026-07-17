@@ -228,4 +228,26 @@ using DataStructures
         @test g_str.attributes[1]["county"] == "A"
         @test length(edge_penalties(g_str)) == 1
     end
+
+    @testset "lazy attribute cache" begin
+        g = BaseGraph(square_grid_filepath, "population")
+        col1 = GerryChain._attribute_vector(g, "purple")
+        col2 = GerryChain._attribute_vector(g, "purple")
+        @test col1 === col2
+        public = attribute_vector(g, "purple")
+        @test public == col1
+        @test public !== col1
+
+        partition = Partition(g, "assignment")
+        score = DistrictAggregate("purple")
+        expected = sum(g.attributes[n]["purple"] for n in partition.dist_nodes[1])
+        @test eval_score_on_district(g, partition, score, 1) == expected
+
+        old = g.attributes[1]["purple"]
+        set_attribute!(g, 1, "purple", old + 1)
+        @test !haskey(g._attr_cache, "purple")
+        col3 = GerryChain._attribute_vector(g, "purple")
+        @test col3[1] == old + 1
+        @test col3 !== col1
+    end
 end

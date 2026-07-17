@@ -105,6 +105,7 @@ end
         attrs,
         zeros(Float64, 3),
         Dict{String,Vector{UInt32}}(),
+        Dict{String,Vector{Float64}}(),
     )
     e12 = adj[1, 2]
     e23 = adj[2, 3]
@@ -140,4 +141,52 @@ end
     mst3 = weighted_kruskal_mst(tri, edges, nodes, weights)
     @test mst3 == GerryChain.kruskal_mst(tri, edges, nodes, Float64.(weights))
     @test !(e13 in mst3)
+end
+
+@testset "Wilson UST" begin
+    graph = BaseGraph(square_grid_filepath, "population")
+    nodes = [1, 2, 3, 4, 5, 6, 7, 8]
+    edges = [
+        graph.adj_matrix[1, 2],
+        graph.adj_matrix[2, 3],
+        graph.adj_matrix[3, 4],
+        graph.adj_matrix[5, 6],
+        graph.adj_matrix[6, 7],
+        graph.adj_matrix[7, 8],
+        graph.adj_matrix[1, 5],
+        graph.adj_matrix[2, 6],
+        graph.adj_matrix[3, 7],
+        graph.adj_matrix[4, 8],
+    ]
+    rng = MersenneTwister(99)
+    tree = wilson_ust(graph, edges, nodes, rng)
+    @test length(tree) == length(nodes) - 1
+    connected_vs = DisjointSets{Int}(nodes)
+    cycle_found = false
+    for edge in tree
+        if in_same_set(connected_vs, graph.edge_src[edge], graph.edge_dst[edge])
+            cycle_found = true
+            break
+        else
+            union!(connected_vs, graph.edge_src[edge], graph.edge_dst[edge])
+        end
+    end
+    @test !cycle_found
+    # connected: one component
+    roots = Set(find_root!(connected_vs, n) for n in nodes)
+    @test length(roots) == 1
+end
+
+@testset "MSTScratch reuse" begin
+    graph = BaseGraph(square_grid_filepath, "population")
+    nodes = collect(1:16)
+    edges = collect(1:graph.num_edges)
+    weights = rand(MersenneTwister(1), length(edges))
+    scratch = MSTScratch(length(edges), maximum(nodes))
+    mst1 = kruskal_mst!(scratch, graph, edges, nodes, weights)
+    mst2 = GerryChain.kruskal_mst(graph, edges, nodes, weights)
+    @test mst1 == mst2
+    # reuse scratch
+    mst3 = kruskal_mst!(scratch, graph, edges, nodes, weights)
+    @test mst3 == mst2
 end

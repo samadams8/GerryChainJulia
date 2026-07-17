@@ -7,6 +7,8 @@ using JSON
 using HDF5
 using Logging
 using SparseArrays
+using Random
+using DataStructures
 
 const testdir = dirname(@__FILE__)
 square_grid_filepath = joinpath(testdir, "maps", "test_grid_4x4.json")

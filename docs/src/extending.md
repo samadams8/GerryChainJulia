@@ -34,8 +34,25 @@ update_partition!(new_p, graph, proposal, false)
 ```
 
 `clone_for_update` does **not** copy the graph and does not recurse into an
-existing parent chain. The in-place `update_partition!(..., copy_parent=true)`
-path stores a field-wise parent snapshot (no recursive `deepcopy`).
+existing parent chain. Untouched district `BitSet`s are **shared** by reference;
+updates that mutate a district copy or replace that district's `BitSet` first.
+Optional `PartitionBuffers` reuse assignment/population/cut-edge arrays:
+
+```julia
+buffers = PartitionBuffers(partition)
+new_p = clone_for_update(partition, buffers)
+```
+
+The in-place `update_partition!(..., copy_parent=true)` path stores a field-wise
+parent snapshot (no recursive `deepcopy`).
+
+## Attribute columns
+
+Node attributes remain a `Vector{Dict{String,Any}}` source of truth. Scoring
+lazily materializes dense `Vector{Float64}` columns in an internal cache.
+Prefer `attribute_vector(graph, key)` (returns a copy) and
+`set_attribute!` / `set_attributes!` for writes. Mutating
+`graph.attributes[i][key] = v` directly does **not** invalidate the cache.
 
 ## Region-aware / weighted ReCom
 
@@ -49,10 +66,12 @@ set_edge_penalty!(graph, u, v, 10.0)
 recom_chain(
     graph, partition, pop_constraint, num_steps, scores;
     region_surcharges = Dict("COUNTYID" => 1.0, "MUNIID" => 0.5),
+    tree_method = :kruskal,  # or :wilson (uniform; ignores penalties/surcharges)
+    n_parallel = 1,          # >1 tries concurrent proposals until one succeeds
 )
 ```
 
-MST edge weights are:
+MST edge weights (Kruskal) are:
 
 `rand(rng) + edge_penalties[e] + Σ surcharge[col]` when endpoints differ in region `col`.
 

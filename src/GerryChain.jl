@@ -19,7 +19,6 @@ export BaseGraph,
     AbstractPartition,
     Partition,
     get_attributes,
-    get_populations_and_assignments,
     get_district_nodes,
     get_district_populations,
     get_district_adj_and_cut_edges,
@@ -27,6 +26,7 @@ export BaseGraph,
     induced_subgraph_edges,
     update_partition_adjacency,
     clone_for_update,
+    PartitionBuffers,
 
     # graph / partition accessors
     # (AbstractGraph / neighbors / kruskal_mst are intentionally not exported —
@@ -51,11 +51,18 @@ export BaseGraph,
     set_edge_penalty!,
     set_edge_penalties_from_pairs!,
     add_region_column!,
+    attribute_vector,
+    prefetch_attribute!,
+    set_attribute!,
+    set_attributes!,
 
     # balance edges
     random_kruskal_mst,
     weighted_kruskal_mst,
     build_mst_weights!,
+    wilson_ust,
+    MSTScratch,
+    kruskal_mst!,
 
     # proposals
     AbstractProposal,
