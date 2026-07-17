@@ -9,11 +9,10 @@ using Statistics
 using DelimitedFiles
 using PyPlot
 using ProgressBars
-import Shapefile
-import LibGEOS
-import LibSpatialIndex
+using Shapefile: Shapefile
+using LibGEOS: LibGEOS
+using LibSpatialIndex: LibSpatialIndex
 using Logging
-using ResumableFunctions
 
 export BaseGraph,
     AbstractPartition,
@@ -81,6 +80,7 @@ export BaseGraph,
     update_partition!,
     recom_chain,
     recom_chain_iter,
+    RecomChainIter,
     sample_subgraph,
     get_balanced_proposal,
     get_balanced_proposal_subtree_population,
@@ -89,6 +89,7 @@ export BaseGraph,
     # flip
     flip_chain,
     flip_chain_iter,
+    FlipChainIter,
 
     # scores
     DistrictAggregate,

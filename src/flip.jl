@@ -16,7 +16,7 @@ Proposes a random boundary flip from the partition.
 function propose_random_flip(
     graph::AbstractGraph,
     partition::AbstractPartition,
-    rng::AbstractRNG = Random.default_rng(),
+    rng::AbstractRNG=Random.default_rng(),
 )
     if num_cut_edges(partition) == 0
         throw(ArgumentError("No cut edges in the districting plan"))
@@ -28,7 +28,7 @@ function propose_random_flip(
     cut = cut_edges(partition)
     # iterate through array of bools indicating cut edge, stop at the
     # randomly chosen index-th edge
-    for i = 1:num_edges(graph)
+    for i in 1:num_edges(graph)
         cut_edge_tracker += cut[i]
         if cut_edge_tracker == cut_edge_idx
             edge_idx = i
@@ -40,7 +40,7 @@ function propose_random_flip(
     dsts = edge_dst(graph)
     edge = (srcs[edge_idx], dsts[edge_idx])
     index = rand(rng, (0, 1))
-    flipped_node, other_node = edge[index+1], edge[2-index]
+    flipped_node, other_node = edge[index + 1], edge[2 - index]
     node_pop = populations(graph)[flipped_node]
     asg = assignments(partition)
     pops = dist_populations(partition)
@@ -92,7 +92,7 @@ function get_valid_proposal(
     partition::AbstractPartition,
     pop_constraint::PopulationConstraint,
     cont_constraint::ContiguityConstraint,
-    rng::AbstractRNG = Random.default_rng(),
+    rng::AbstractRNG=Random.default_rng(),
 )
     proposal = propose_random_flip(graph, partition, rng)
     # continuously generate new proposals until one satisfies our constraints
@@ -117,10 +117,10 @@ function update_partition!(
     partition::Partition,
     graph::AbstractGraph,
     proposal::FlipProposal,
-    copy_parent::Bool = false,
+    copy_parent::Bool=false,
 )
     if copy_parent
-        partition.parent = _copy_partition_fields(partition; parent = nothing)
+        partition.parent = _copy_partition_fields(partition; parent=nothing)
     end
 
     # update district population counts
@@ -134,20 +134,95 @@ function update_partition!(
     partition.dist_nodes[proposal.D₁] = proposal.D₁_nodes
     partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 
-    update_partition_adjacency(partition, graph)
+    return update_partition_adjacency(partition, graph)
+end
+
+"""
+    FlipChainIter
+
+Stateful custom iterator type representing a Flip Markov Chain.
+Iterating over this object yields `(partition, score_vals)` at each step.
+"""
+struct FlipChainIter{
+    G<:AbstractGraph,
+    P<:AbstractPartition,
+    PC<:PopulationConstraint,
+    CC<:ContiguityConstraint,
+    S<:AbstractScore,
+    F<:Function,
+    RNG<:AbstractRNG,
+}
+    graph::G
+    partition::P
+    pop_constraint::PC
+    cont_constraint::CC
+    num_steps::Int
+    scores::Vector{S}
+    acceptance_fn::F
+    rng::RNG
+    no_self_loops::Bool
+end
+
+Base.length(iter::FlipChainIter) = iter.num_steps
+function Base.eltype(::Type{<:FlipChainIter{G,P,PC,CC,S}}) where {G,P,PC,CC,S}
+    return Tuple{P,Dict{String,Any}}
+end
+
+function Base.iterate(iter::FlipChainIter)
+    return Base.iterate(iter, (1, iter.partition))
+end
+
+function Base.iterate(iter::FlipChainIter, state)
+    step, partition = state
+    if step > iter.num_steps
+        return nothing
+    end
+
+    step_completed = false
+    score_vals = nothing
+    next_partition = partition
+
+    while !step_completed
+        proposal = get_valid_proposal(
+            iter.graph, next_partition, iter.pop_constraint, iter.cont_constraint, iter.rng
+        )
+        custom_acceptance = iter.acceptance_fn !== always_accept
+        update_partition!(next_partition, iter.graph, proposal, custom_acceptance)
+
+        if custom_acceptance &&
+            !satisfies_acceptance_fn(next_partition, iter.acceptance_fn, iter.rng)
+            # go back to the previous partition
+            next_partition = next_partition.parent
+            # if user specifies this behavior, we do not increment the steps
+            # taken if the acceptance function fails.
+            if !iter.no_self_loops
+                score_vals = score_partition_from_proposal(
+                    iter.graph, next_partition, proposal, iter.scores
+                )
+                step_completed = true
+            end
+        else
+            score_vals = score_partition_from_proposal(
+                iter.graph, next_partition, proposal, iter.scores
+            )
+            step_completed = true
+        end
+    end
+
+    return (next_partition, score_vals), (step + 1, next_partition)
 end
 
 """
     flip_chain_iter(graph::AbstractGraph,
-               partition::AbstractPartition,
-               pop_constraint::PopulationConstraint,
-               cont_constraint::ContiguityConstraint,
-               num_steps::Int,
-               scores::Array{S, 1};
-               acceptance_fn::F=always_accept,
-               rng::AbstractRNG = Random.default_rng(),
-               no_self_loops::Bool=false,
-               progress_bar = true) where {F<:Function,S<:AbstractScore}
+                    partition::AbstractPartition,
+                    pop_constraint::PopulationConstraint,
+                    cont_constraint::ContiguityConstraint,
+                    num_steps::Int,
+                    scores::Array{S, 1};
+                    acceptance_fn::F=always_accept,
+                    rng::AbstractRNG=Random.default_rng(),
+                    no_self_loops::Bool=false,
+                    progress_bar::Bool=true) where {F<:Function, S<:AbstractScore}
 
 Runs a Markov Chain for `num_steps` steps using Flip proposals. Returns
 an iterator of `(Partition, score_vals)`. Note that `Partition` is mutable and
@@ -183,60 +258,26 @@ function flip_chain_iter(
     cont_constraint::ContiguityConstraint,
     num_steps::Int,
     scores::Array{S,1};
-    kwargs...,
-) where {S<:AbstractScore}
-    return _flip_chain_iter(
+    acceptance_fn::F=always_accept,
+    rng::AbstractRNG=Random.default_rng(),
+    no_self_loops::Bool=false,
+    progress_bar::Bool=true,
+) where {F<:Function,S<:AbstractScore}
+    iter = FlipChainIter(
         graph,
         partition,
         pop_constraint,
         cont_constraint,
         num_steps,
-        scores;
-        kwargs...,
+        collect(scores),
+        acceptance_fn,
+        rng,
+        no_self_loops,
     )
-end
-
-function _flip_chain_iter end # ResumableFunctions workaround
-@resumable function _flip_chain_iter(
-    graph::BaseGraph,
-    partition::Partition,
-    pop_constraint::PopulationConstraint,
-    cont_constraint::ContiguityConstraint,
-    num_steps::Int,
-    scores::Array{S,1};
-    acceptance_fn::F = always_accept,
-    rng::AbstractRNG = Random.default_rng(),
-    no_self_loops::Bool = false,
-    progress_bar = true,
-) where {F<:Function,S<:AbstractScore}
     if progress_bar
-        iter = ProgressBar(1:num_steps)
+        return ProgressBar(iter)
     else
-        iter = 1:num_steps
-    end
-
-    for steps_taken in iter
-        step_completed = false
-        while !step_completed
-            proposal = get_valid_proposal(graph, partition, pop_constraint, cont_constraint, rng)
-            custom_acceptance = acceptance_fn !== always_accept
-            update_partition!(partition, graph, proposal, custom_acceptance)
-            if custom_acceptance && !satisfies_acceptance_fn(partition, acceptance_fn, rng)
-                # go back to the previous partition
-                partition = partition.parent
-                # if user specifies this behavior, we do not increment the steps
-                # taken if the acceptance function fails.
-                if !no_self_loops
-                    score_vals = score_partition_from_proposal(graph, partition, proposal, scores)
-                    @yield partition, score_vals
-                    step_completed = true
-                end
-            else
-                score_vals = score_partition_from_proposal(graph, partition, proposal, scores)
-                @yield partition, score_vals
-                step_completed = true
-            end
-        end
+        return iter
     end
 end
 
@@ -249,7 +290,8 @@ end
                scores::Array{S, 1};
                acceptance_fn::F=always_accept,
                rng::AbstractRNG = Random.default_rng(),
-               no_self_loops::Bool=false)::ChainScoreData where {F<:Function, S<:AbstractScore}
+               no_self_loops::Bool=false,
+               progress_bar::Bool=true)::ChainScoreData where {F<:Function, S<:AbstractScore}
 
 Runs a Markov Chain for `num_steps` steps using Flip proposals. Returns
 a `ChainScoreData` object which can be queried to retrieve the values of
@@ -284,51 +326,25 @@ function flip_chain(
     cont_constraint::ContiguityConstraint,
     num_steps::Int,
     scores::Array{S,1};
-    acceptance_fn::F = always_accept,
-    rng::AbstractRNG = Random.default_rng(),
-    no_self_loops::Bool = false,
-    progress_bar = true,
-)::ChainScoreData where {F<:Function,S<:AbstractScore}
-    return _flip_chain(
-        graph,
-        partition,
-        pop_constraint,
-        cont_constraint,
-        num_steps,
-        scores;
-        acceptance_fn = acceptance_fn,
-        rng = rng,
-        no_self_loops = no_self_loops,
-        progress_bar = progress_bar,
-    )
-end
-
-function _flip_chain(
-    graph::BaseGraph,
-    partition::Partition,
-    pop_constraint::PopulationConstraint,
-    cont_constraint::ContiguityConstraint,
-    num_steps::Int,
-    scores::Array{S,1};
-    acceptance_fn::F = always_accept,
-    rng::AbstractRNG = Random.default_rng(),
-    no_self_loops::Bool = false,
-    progress_bar = true,
+    acceptance_fn::F=always_accept,
+    rng::AbstractRNG=Random.default_rng(),
+    no_self_loops::Bool=false,
+    progress_bar::Bool=true,
 )::ChainScoreData where {F<:Function,S<:AbstractScore}
     first_scores = score_initial_partition(graph, partition, scores)
     chain_scores = ChainScoreData(deepcopy(scores), [first_scores])
 
-    for (_, score_vals) in _flip_chain_iter(
+    for (_, score_vals) in flip_chain_iter(
         graph,
         partition,
         pop_constraint,
         cont_constraint,
         num_steps,
         scores;
-        acceptance_fn,
-        rng,
-        no_self_loops,
-        progress_bar,
+        acceptance_fn=acceptance_fn,
+        rng=rng,
+        no_self_loops=no_self_loops,
+        progress_bar=progress_bar,
     )
         push!(chain_scores.step_values, score_vals)
     end

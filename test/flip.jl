@@ -36,12 +36,7 @@
         function run_chain()
             try
                 flip_chain(
-                    graph,
-                    partition,
-                    pop_constraint,
-                    cont_constraint,
-                    num_steps,
-                    scores,
+                    graph, partition, pop_constraint, cont_constraint, num_steps, scores
                 )
             catch ex
                 return ex
@@ -71,7 +66,7 @@
             cont_constraint,
             num_steps,
             scores,
-            acceptance_fn = f,
+            acceptance_fn=f,
         )
         @test get_scores_at_step(chain_data, 0) == get_scores_at_step(chain_data, 1)
         # acceptance function should still return 0, because the acceptance function
@@ -86,11 +81,59 @@
             cont_constraint,
             num_steps,
             scores,
-            acceptance_fn = f,
-            no_self_loops = true,
+            acceptance_fn=f,
+            no_self_loops=true,
         )
         # acceptance function should now return 1, because the acceptance function
         # should have been called until it started returning 1.0
         @test f(nothing) == 1.0
+    end
+
+    @testset "flip_chain_iter" begin
+        partition = Partition(graph, "assignment")
+        pop_constraint = PopulationConstraint(graph, partition, 10.0)
+        cont_constraint = ContiguityConstraint()
+        scores = [DistrictAggregate("purple")]
+        num_steps = 3
+
+        iter = flip_chain_iter(
+            graph,
+            partition,
+            pop_constraint,
+            cont_constraint,
+            num_steps,
+            scores;
+            progress_bar=false,
+            rng=MersenneTwister(42),
+        )
+
+        @test iter isa FlipChainIter
+        @test length(iter) == num_steps
+        @test eltype(iter) == Tuple{Partition,Dict{String,Any}}
+
+        # Iterate step-by-step
+        results = collect(iter)
+        @test length(results) == num_steps
+        for (p, s) in results
+            @test p isa Partition
+            @test s isa Dict{String,Any}
+            @test haskey(s, "purple")
+            @test haskey(s, "dists")
+        end
+
+        # Test with progress_bar = true
+        iter_pb = flip_chain_iter(
+            graph,
+            partition,
+            pop_constraint,
+            cont_constraint,
+            num_steps,
+            scores;
+            progress_bar=true,
+            rng=MersenneTwister(42),
+        )
+        @test iter_pb isa ProgressBar
+        results_pb = collect(iter_pb)
+        @test length(results_pb) == num_steps
     end
 end

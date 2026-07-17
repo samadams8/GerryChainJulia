@@ -1,6 +1,6 @@
 using GerryChain
-import LibGEOS
-import LibSpatialIndex
+using LibGEOS: LibGEOS
+using LibSpatialIndex: LibSpatialIndex
 using Test
 using LightGraphs
 using JSON
@@ -9,6 +9,7 @@ using Logging
 using SparseArrays
 using Random
 using DataStructures
+using ProgressBars
 
 const testdir = dirname(@__FILE__)
 square_grid_filepath = joinpath(testdir, "maps", "test_grid_4x4.json")
