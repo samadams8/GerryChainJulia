@@ -434,18 +434,24 @@ function induced_subgraph_edges(
     graph::BaseGraph,
     vlist::Array{Int,1},
 )::Array{Int,1}
-    allunique(vlist) || throw(ArgumentError("Vertices in subgraph list must be unique"))
-    induced_edges = Set{Int}()
-
-    vset = Set(vlist)
-    for src_node in vlist
-        for dst_node in graph.neighbors[src_node]
-            if dst_node in vset
-                push!(induced_edges, graph.adj_matrix[src_node, dst_node])
+    n = num_nodes(graph)
+    in_v = falses(n)
+    @inbounds for v in vlist
+        (v < 1 || v > n) && throw(ArgumentError("Vertex $v out of range 1:$n"))
+        in_v[v] && throw(ArgumentError("Vertices in subgraph list must be unique"))
+        in_v[v] = true
+    end
+    edges = Int[]
+    sizehint!(edges, length(vlist))
+    @inbounds for u in vlist
+        for v in graph.neighbors[u]
+            # undirected dual graph: emit each edge once
+            if v > u && in_v[v]
+                push!(edges, graph.adj_matrix[u, v])
             end
         end
     end
-    return collect(induced_edges)
+    return edges
 end
 
 """

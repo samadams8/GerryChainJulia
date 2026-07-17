@@ -226,5 +226,40 @@
             MersenneTwister(1), 1;
             cut_method = :bogus,
         )
+
+        # SubtreeCutScratch reuse: same result as fresh call; reusable across MSTs
+        cut_scratch = SubtreeCutScratch()
+        fresh = get_balanced_proposal_subtree_population(
+            graph, mst_edges, sg_nodes, partition, pop_constraint, D₁, D₂,
+        )
+        reused1 = get_balanced_proposal_subtree_population(
+            graph, mst_edges, sg_nodes, partition, pop_constraint, D₁, D₂;
+            scratch = cut_scratch,
+        )
+        reused2 = get_balanced_proposal_subtree_population(
+            graph, mst_edges, sg_nodes, partition, pop_constraint, D₁, D₂;
+            scratch = cut_scratch,
+        )
+        @test typeof(fresh) == typeof(reused1) == typeof(reused2)
+        if fresh isa RecomProposal
+            @test reused1 isa RecomProposal
+            @test reused2 isa RecomProposal
+            @test reused1.D₁_pop == fresh.D₁_pop == reused2.D₁_pop
+            @test reused1.D₂_pop == fresh.D₂_pop == reused2.D₂_pop
+            @test reused1.D₁_nodes == fresh.D₁_nodes == reused2.D₁_nodes
+            @test reused1.D₂_nodes == fresh.D₂_nodes == reused2.D₂_nodes
+        else
+            @test reused1 isa DummyProposal
+            @test reused2 isa DummyProposal
+        end
+
+        mst2 = random_kruskal_mst(
+            graph, sg_edges, collect(sg_nodes), MersenneTwister(99),
+        )
+        other = get_balanced_proposal_subtree_population(
+            graph, mst2, sg_nodes, partition, pop_constraint, D₁, D₂;
+            scratch = cut_scratch,
+        )
+        @test other isa Union{RecomProposal,DummyProposal}
     end
 end

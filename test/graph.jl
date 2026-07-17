@@ -146,6 +146,9 @@ using DataStructures
             push!(induced_vertices, graph.edge_src[edge], graph.edge_dst[edge])
         end
         @test induced_vertices == Set{Int}([1, 2, 3, 4])
+
+        @test induced_subgraph_edges(graph, Int[]) == Int[]
+        @test isempty(induced_subgraph_edges(graph, [5]))  # isolated in induced sense if no self-loop
     end
     @test_throws ArgumentError induced_subgraph_edges(graph, [1, 1, 4])
 

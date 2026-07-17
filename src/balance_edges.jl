@@ -37,6 +37,56 @@ function _ensure_mst_scratch!(scratch::MSTScratch, n_edges::Int, max_node::Int)
     return scratch
 end
 
+"""
+    SubtreeCutScratch
+
+Reusable buffers for `get_balanced_proposal_subtree_population`.
+"""
+mutable struct SubtreeCutScratch
+    adj::Vector{Vector{Int}}
+    parent::Vector{Int}
+    subpop::Vector{Int}
+    order::Vector{Int}
+    stack::Vector{Int}
+    seen::BitVector
+    max_node::Int
+end
+
+function SubtreeCutScratch(max_node::Int = 0)
+    return SubtreeCutScratch(
+        [Int[] for _ = 1:max_node],
+        zeros(Int, max_node),
+        zeros(Int, max_node),
+        Int[],
+        Int[],
+        falses(max_node),
+        max_node,
+    )
+end
+
+function _ensure_subtree_cut_scratch!(scratch::SubtreeCutScratch, max_node::Int)
+    if scratch.max_node < max_node || length(scratch.parent) < max_node
+        old = scratch.max_node
+        resize!(scratch.adj, max_node)
+        for i = (old + 1):max_node
+            scratch.adj[i] = Int[]
+        end
+        scratch.parent = zeros(Int, max_node)
+        scratch.subpop = zeros(Int, max_node)
+        scratch.seen = falses(max_node)
+        scratch.max_node = max_node
+    end
+    # Clear adjacency lists touched on the previous run
+    @inbounds for u in scratch.order
+        empty!(scratch.adj[u])
+    end
+    empty!(scratch.order)
+    empty!(scratch.stack)
+    fill!(scratch.parent, 0)
+    # seen is reset only when collecting a component
+    return scratch
+end
+
 @inline function _uf_find!(parent::Vector{Int}, x::Int)
     while parent[x] != x
         parent[x] = parent[parent[x]]

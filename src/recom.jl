@@ -186,7 +186,7 @@ end
 
 """
     get_balanced_proposal_subtree_population(graph, mst_edges, mst_nodes,
-        partition, pop_constraint, D₁, D₂)
+        partition, pop_constraint, D₁, D₂; scratch=nothing)
 
 Same contract as `get_balanced_proposal`, but evaluates candidate cuts using
 rooted-tree subtree populations in O(|V|) instead of walking each side per edge.
@@ -194,6 +194,8 @@ rooted-tree subtree populations in O(|V|) instead of walking each side per edge.
 Iterates `mst_edges` in the same order as `get_balanced_proposal` and scores the
 same side (component containing `edge_src`, avoiding `edge_dst`) so the first
 accepted cut matches `:edge_scan`.
+
+Pass a reusable `SubtreeCutScratch` via `scratch` to avoid per-call allocations.
 """
 function get_balanced_proposal_subtree_population(
     graph::AbstractGraph,
@@ -202,7 +204,8 @@ function get_balanced_proposal_subtree_population(
     partition::AbstractPartition,
     pop_constraint::PopulationConstraint,
     D₁::Int,
-    D₂::Int,
+    D₂::Int;
+    scratch::Union{SubtreeCutScratch,Nothing} = nothing,
 )
     isempty(mst_nodes) && return DummyProposal("Could not find balanced cut.")
 
@@ -213,20 +216,27 @@ function get_balanced_proposal_subtree_population(
     node_pops = populations(graph)
 
     max_node = maximum(mst_nodes)
-    adj = [Int[] for _ = 1:max_node]
+    if scratch === nothing
+        scratch = SubtreeCutScratch(max_node)
+    else
+        _ensure_subtree_cut_scratch!(scratch, max_node)
+    end
+
+    adj = scratch.adj
+    parent = scratch.parent
+    subpop = scratch.subpop
+    order = scratch.order
+    stack = scratch.stack
+
     @inbounds for e in mst_edges
         u, v = srcs[e], dsts[e]
         push!(adj[u], v)
         push!(adj[v], u)
     end
 
-    parent = zeros(Int, max_node)
-    subpop = zeros(Int, max_node)
-    order = Int[]
-    sizehint!(order, length(mst_nodes))
-
     root = first(mst_nodes)
-    stack = Int[root]
+    empty!(stack)
+    push!(stack, root)
     parent[root] = root  # mark root as visited with self-parent
     while !isempty(stack)
         u = pop!(stack)
@@ -260,13 +270,12 @@ function get_balanced_proposal_subtree_population(
         elseif parent[v] == u
             subgraph_pop - subpop[v]
         else
-            # Should not happen on a tree; fall back to walking
             continue
         end
         population₂ = subgraph_pop - population₁
 
         if satisfy_constraint(pop_constraint, population₁, population₂)
-            component₁ = _collect_component_dense(adj, u, v, max_node)
+            component₁ = _collect_component_dense!(scratch, u, v)
             component₂ = setdiff(mst_nodes, component₁)
             return RecomProposal(D₁, D₂, population₁, population₂, component₁, component₂)
         end
@@ -274,17 +283,20 @@ function get_balanced_proposal_subtree_population(
     return DummyProposal("Could not find balanced cut.")
 end
 
-"""Collect nodes reachable from `start` without crossing to `avoid`, using dense adj."""
-function _collect_component_dense(
-    adj::Vector{Vector{Int}},
+"""Collect nodes reachable from `start` without crossing to `avoid`, using scratch buffers."""
+function _collect_component_dense!(
+    scratch::SubtreeCutScratch,
     start::Int,
     avoid::Int,
-    max_node::Int,
 )::BitSet
-    seen = falses(max_node)
-    stack = Int[start]
+    seen = scratch.seen
+    fill!(seen, false)
+    stack = scratch.stack
+    empty!(stack)
+    push!(stack, start)
     seen[start] = true
     nodes = BitSet()
+    adj = scratch.adj
     while !isempty(stack)
         u = pop!(stack)
         push!(nodes, u)
@@ -359,7 +371,7 @@ end
 
 """
     _try_valid_proposal(graph, partition, pop_constraint, rng, num_tries;
-                        tree_method, region_surcharges, scratch, cut_method)
+                        tree_method, region_surcharges, scratch, cut_scratch, cut_method)
 
 Attempt one subgraph sample with up to `num_tries` spanning trees.
 Returns a `RecomProposal` or `nothing`.
@@ -373,6 +385,7 @@ function _try_valid_proposal(
     tree_method::Symbol = :kruskal,
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
     scratch::Union{MSTScratch,Nothing} = nothing,
+    cut_scratch::Union{SubtreeCutScratch,Nothing} = nothing,
     cut_method::Symbol = :subtree_population,
 )
     D₁, D₂, sg_edges, sg_nodes = sample_subgraph(graph, partition, rng)
@@ -396,7 +409,8 @@ function _try_valid_proposal(
                 partition,
                 pop_constraint,
                 D₁,
-                D₂,
+                D₂;
+                scratch = cut_scratch,
             )
         elseif cut_method === :edge_scan
             get_balanced_proposal(
@@ -471,6 +485,8 @@ function get_valid_proposal(
     end
 
     if n_parallel == 1
+        mst_scratch = MSTScratch()
+        cut_scratch = SubtreeCutScratch()
         while true
             proposal = _try_valid_proposal(
                 graph,
@@ -480,6 +496,8 @@ function get_valid_proposal(
                 num_tries;
                 tree_method = tree_method,
                 region_surcharges = region_surcharges,
+                scratch = mst_scratch,
+                cut_scratch = cut_scratch,
                 cut_method = cut_method,
             )
             proposal !== nothing && return proposal
@@ -492,6 +510,7 @@ function get_valid_proposal(
             Threads.@spawn begin
                 task_rng = Random.MersenneTwister(seeds[i])
                 scratch = MSTScratch()
+                cut_scratch = SubtreeCutScratch()
                 _try_valid_proposal(
                     graph,
                     partition,
@@ -501,6 +520,7 @@ function get_valid_proposal(
                     tree_method = tree_method,
                     region_surcharges = region_surcharges,
                     scratch = scratch,
+                    cut_scratch = cut_scratch,
                     cut_method = cut_method,
                 )
             end

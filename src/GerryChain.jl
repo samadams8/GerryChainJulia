@@ -62,6 +62,7 @@ export BaseGraph,
     build_mst_weights!,
     wilson_ust,
     MSTScratch,
+    SubtreeCutScratch,
     kruskal_mst!,
 
     # proposals
