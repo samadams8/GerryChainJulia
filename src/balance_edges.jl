@@ -131,7 +131,10 @@ function build_mst_weights!(
         u = srcs[e]
         v = dsts[e]
         for j = 1:length(surcharge_cols)
-            if region_vecs[j][u] != region_vecs[j][v]
+            id_u = region_vecs[j][u]
+            id_v = region_vecs[j][v]
+            # UInt32(0) = no region; only surcharge real cross-region edges
+            if id_u != UInt32(0) && id_v != UInt32(0) && id_u != id_v
                 w += surcharge_vals[j]
             end
         end

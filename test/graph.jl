@@ -188,6 +188,17 @@ using DataStructures
         end
         @test cross > 0
 
+        # null / empty labels encode as sentinel 0
+        add_region_column!(graph, "muni", ["A", missing, "", "A", nothing, "B", "B", "A",
+                                           "A", "B", "A", "B", "A", "B", "A", "B"])
+        muni_ids = region_ids(graph, "muni")
+        @test muni_ids[2] == UInt32(0)
+        @test muni_ids[3] == UInt32(0)
+        @test muni_ids[5] == UInt32(0)
+        @test muni_ids[1] == muni_ids[4]
+        @test muni_ids[1] != UInt32(0)
+        @test muni_ids[1] != muni_ids[6]
+
         g2 = BaseGraph(
             square_grid_filepath,
             "population";

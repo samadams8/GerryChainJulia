@@ -168,4 +168,63 @@
         data = recom_chain(g, p, pop_c, 1, scores; progress_bar = false, rng = MersenneTwister(3))
         @test length(data.step_values) == 2
     end
+
+    @testset "get_balanced_proposal_subtree_population" begin
+        partition = Partition(graph, "assignment")
+        pop_constraint = PopulationConstraint(graph, partition, 10.0)
+
+        D₁, D₂, sg_edges, sg_nodes = sample_subgraph(
+            graph, partition, MersenneTwister(42),
+        )
+        mst_edges = random_kruskal_mst(
+            graph, sg_edges, collect(sg_nodes), MersenneTwister(7),
+        )
+
+        edge_scan = get_balanced_proposal(
+            graph, mst_edges, sg_nodes, partition, pop_constraint, D₁, D₂,
+        )
+        subtree = get_balanced_proposal_subtree_population(
+            graph, mst_edges, sg_nodes, partition, pop_constraint, D₁, D₂,
+        )
+
+        @test edge_scan isa Union{RecomProposal,DummyProposal}
+        @test subtree isa Union{RecomProposal,DummyProposal}
+
+        if edge_scan isa RecomProposal
+            @test subtree isa RecomProposal
+            @test satisfy_constraint(pop_constraint, subtree.D₁_pop, subtree.D₂_pop)
+            @test subtree.D₁_nodes ∪ subtree.D₂_nodes == sg_nodes
+            @test isempty(subtree.D₁_nodes ∩ subtree.D₂_nodes)
+            @test subtree.D₁_pop == edge_scan.D₁_pop
+            @test subtree.D₂_pop == edge_scan.D₂_pop
+            @test subtree.D₁_nodes == edge_scan.D₁_nodes
+            @test subtree.D₂_nodes == edge_scan.D₂_nodes
+        else
+            @test subtree isa DummyProposal
+        end
+
+        chain_data = recom_chain(
+            graph, Partition(graph, "assignment"), pop_constraint, 1,
+            [DistrictAggregate("purple")];
+            cut_method = :subtree_population,
+            progress_bar = false,
+            rng = MersenneTwister(19),
+        )
+        @test length(chain_data.step_values) == 2
+
+        chain_edge = recom_chain(
+            graph, Partition(graph, "assignment"), pop_constraint, 1,
+            [DistrictAggregate("purple")];
+            cut_method = :edge_scan,
+            progress_bar = false,
+            rng = MersenneTwister(19),
+        )
+        @test length(chain_edge.step_values) == 2
+
+        @test_throws ArgumentError get_valid_proposal(
+            graph, Partition(graph, "assignment"), pop_constraint,
+            MersenneTwister(1), 1;
+            cut_method = :bogus,
+        )
+    end
 end

@@ -136,6 +136,30 @@ end
     @test length(mst2) == 2
     @test e12 in mst2  # in-region edge must be included
 
+    # Null-region sentinel (0): no surcharge on edges with a null endpoint
+    add_region_column!(tri, "muni", ["A", missing, "B"])  # nodes 1=A, 2=null, 3=B
+    fill!(tri.edge_penalties, 0.0)
+    weights_null = zeros(3)
+    build_mst_weights!(
+        weights_null,
+        tri,
+        edges,
+        MersenneTwister(3);
+        region_surcharges = Dict("muni" => 100.0),
+    )
+    weights_base = zeros(3)
+    build_mst_weights!(
+        weights_base,
+        tri,
+        edges,
+        MersenneTwister(3);
+        region_surcharges = Dict{String,Float64}(),
+    )
+    # edges touch null node 2 (e12, e23) → no surcharge; only e13 (A↔B) boosted
+    @test weights_null[1] ≈ weights_base[1]  # e12
+    @test weights_null[2] ≈ weights_base[2]  # e23
+    @test weights_null[3] ≈ weights_base[3] + 100.0  # e13
+
     # Legacy weights-vector overload (UTGC MST_FUNC)
     weights = [0.1, 0.2, 1e9]
     mst3 = weighted_kruskal_mst(tri, edges, nodes, weights)

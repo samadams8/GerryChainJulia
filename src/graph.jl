@@ -468,15 +468,31 @@ function get_subgraph_population(graph::AbstractGraph, nodes::BitSet)::Int
 end
 
 """
+    _is_null_region_value(v) -> Bool
+
+True for values that mean "no region": `missing`, `nothing`, or `""`.
+Encoded as `UInt32(0)` by `encode_region_values`.
+"""
+function _is_null_region_value(v)::Bool
+    return v === nothing || ismissing(v) || v == ""
+end
+
+"""
     encode_region_values(values)::Vector{UInt32}
 
-Map arbitrary region labels to dense `UInt32` codes (1-based).
+Map arbitrary region labels to dense `UInt32` codes.
+`missing`, `nothing`, and `""` map to sentinel `0` (no region).
+All other labels get distinct 1-based dense codes.
 """
 function encode_region_values(values)::Vector{UInt32}
     code_of = Dict{Any,UInt32}()
     coded = Vector{UInt32}(undef, length(values))
     next_code = UInt32(1)
     for (i, v) in enumerate(values)
+        if _is_null_region_value(v)
+            coded[i] = UInt32(0)
+            continue
+        end
         if !haskey(code_of, v)
             code_of[v] = next_code
             next_code += UInt32(1)
@@ -507,7 +523,9 @@ end
     add_region_column!(g::BaseGraph, name::AbstractString, values)
 
 Register (or replace) a dense region column. `values` length must equal
-`num_nodes(g)`. Non-`UInt32` values are encoded to dense codes.
+`num_nodes(g)`. Non-integer values are encoded to dense codes via
+`encode_region_values` (`missing` / `nothing` / `""` → `0`). Integer
+inputs are cast to `UInt32` as-is (`0` remains the null-region sentinel).
 """
 function add_region_column!(g::BaseGraph, name::AbstractString, values)
     length(values) == g.num_nodes || throw(

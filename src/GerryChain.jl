@@ -82,6 +82,7 @@ export BaseGraph,
     recom_chain_iter,
     sample_subgraph,
     get_balanced_proposal,
+    get_balanced_proposal_subtree_population,
     get_valid_proposal,
 
     # flip

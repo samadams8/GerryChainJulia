@@ -73,7 +73,9 @@ recom_chain(
 
 MST edge weights (Kruskal) are:
 
-`rand(rng) + edge_penalties[e] + Σ surcharge[col]` when endpoints differ in region `col`.
+`rand(rng) + edge_penalties[e] + Σ surcharge[col]` when both endpoints have a
+non-null region id for `col` and those ids differ. Null region values
+(`missing`, `nothing`, `""`) encode as `UInt32(0)` and never attract a surcharge.
 
 ## LightGraphs coexistence
 
