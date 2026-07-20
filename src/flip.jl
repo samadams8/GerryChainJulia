@@ -1,17 +1,10 @@
-
 """
-    propose_random_flip(graph::BaseGraph,
-                        partition::Partition)
+    propose_random_flip(graph::AbstractGraph,
+                        partition::AbstractPartition,
+                        rng::AbstractRNG=Random.default_rng()) -> FlipProposal
 
-Proposes a random boundary flip from the partition.
-
-*Arguments:*
-- graph:      BaseGraph
-- partition:  Partition
-- rng:        Random number generator. The user can pass in their
-              own; otherwise, we use the default RNG from Random. Must
-              implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
-              (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
+Proposes a random boundary flip: picks a random cut edge, randomly assigns
+one endpoint to the other's district, and returns the resulting `FlipProposal`.
 """
 function propose_random_flip(
     graph::AbstractGraph,
@@ -57,61 +50,93 @@ function propose_random_flip(
 end
 
 """
-    is_valid(graph::BaseGraph,
-             partition::Partition,
-             pop_constraint::PopulationConstraint,
-             cont_constraint::ContiguityConstraint,
-             proposal::FlipProposal)
+    is_valid(graph, partition, min_pop, max_pop, proposal, [visited, queue]) -> Bool
 
-Helper function that checks whether a proposal both (a) is population
-balanced and (b) does not break contiguity.
+Returns `true` iff the `FlipProposal` satisfies both population balance
+(`min_pop ≤ each district ≤ max_pop`) and contiguity of the source district.
+Reusable `visited` and `queue` scratch buffers may be provided to avoid allocations.
 """
 function is_valid(
     graph::AbstractGraph,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    cont_constraint::ContiguityConstraint,
+    min_pop::Int,
+    max_pop::Int,
     proposal::FlipProposal,
+    visited::BitVector=BitVector(),
+    queue::Vector{Int}=sizehint!(Int[], 64),
 )
-    return satisfy_constraint(pop_constraint, proposal.D₂_pop, proposal.D₁_pop) &&
-           satisfy_constraint(cont_constraint, graph, partition, proposal)
+    pop_ok = proposal.D₁_pop >= min_pop && proposal.D₁_pop <= max_pop &&
+             proposal.D₂_pop >= min_pop && proposal.D₂_pop <= max_pop
+    return pop_ok && is_contiguous_flip(graph, partition, proposal, visited, queue)
 end
 
 """
-    get_valid_proposal(graph::AbstractGraph,
-                       partition::AbstractPartition,
-                       pop_constraint::PopulationConstraint,
-                       cont_constraint::ContiguityConstraint,
-                       rng::AbstractRNG)
+    get_valid_proposal(graph, partition, min_pop, max_pop, [rng]) -> FlipProposal
 
-Returns a population balanced FlipProposal subject to a contiguity
-constraint.
+Samples random flips until one satisfies `[min_pop, max_pop]` population bounds
+and district contiguity. Scratch buffers are allocated once and reused internally.
 """
 function get_valid_proposal(
     graph::AbstractGraph,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    cont_constraint::ContiguityConstraint,
+    min_pop::Int,
+    max_pop::Int,
     rng::AbstractRNG=Random.default_rng(),
 )
+    visited = BitVector()
+    queue = sizehint!(Int[], 64)
     proposal = propose_random_flip(graph, partition, rng)
-    # continuously generate new proposals until one satisfies our constraints
-    while !is_valid(graph, partition, pop_constraint, cont_constraint, proposal)
+    while !is_valid(graph, partition, min_pop, max_pop, proposal, visited, queue)
         proposal = propose_random_flip(graph, partition, rng)
     end
     return proposal
 end
 
 """
+    get_valid_flip_proposal(graph, partition, [rng]; tolerance=0.01) -> FlipProposal
+
+Computes ideal population bounds from `tolerance` and returns a valid `FlipProposal`.
+`tolerance=0.01` means each district must be within ±1% of the ideal population.
+"""
+function get_valid_flip_proposal(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    rng::AbstractRNG=Random.default_rng();
+    tolerance::Float64=0.01,
+)
+    ideal_pop = total_pop(graph) / num_dists(partition)
+    min_pop = Int(ceil((1 - tolerance) * ideal_pop))
+    max_pop = Int(floor((1 + tolerance) * ideal_pop))
+    return get_valid_proposal(graph, partition, min_pop, max_pop, rng)
+end
+
+"""
+    flip_proposal(graph, partition; tolerance=0.01, rng=Random.default_rng()) -> Partition
+
+High-level flip proposal function. Generates a population-balanced, contiguous
+`FlipProposal` and returns a new `Partition` with the flip applied.
+Intended for use as the `proposal` argument to `MarkovChain`.
+"""
+function flip_proposal(
+    graph::AbstractGraph,
+    partition::AbstractPartition;
+    tolerance::Float64=0.01,
+    rng::AbstractRNG=Random.default_rng(),
+)
+    prop = get_valid_flip_proposal(graph, partition, rng; tolerance=tolerance)
+    p_next = clone_for_update(partition)
+    return update_partition!(p_next, graph, prop)
+end
+
+"""
     update_partition!(partition::Partition,
                       graph::AbstractGraph,
                       proposal::FlipProposal,
-                      copy_parent::Bool=false)
+                      copy_parent::Bool=false) -> Partition
 
-Updates the `Partition` with the `FlipProposal`.
-
-When `copy_parent` is true, a field-wise snapshot of the current partition
-is stored in `partition.parent` (no recursive `deepcopy`).
+Applies a `FlipProposal` to `partition` in-place. When `copy_parent` is `true`,
+a shallow snapshot of the current partition is stored in `partition.parent` before
+updating (useful for acceptance functions that need to compare to the previous state).
 """
 function update_partition!(
     partition::Partition,
@@ -135,219 +160,4 @@ function update_partition!(
     partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 
     return update_partition_adjacency(partition, graph)
-end
-
-"""
-    FlipChainIter
-
-Stateful custom iterator type representing a Flip Markov Chain.
-Iterating over this object yields `(partition, score_vals)` at each step.
-"""
-struct FlipChainIter{
-    G<:AbstractGraph,
-    P<:AbstractPartition,
-    PC<:PopulationConstraint,
-    CC<:ContiguityConstraint,
-    S<:AbstractScore,
-    F<:Function,
-    RNG<:AbstractRNG,
-}
-    graph::G
-    partition::P
-    pop_constraint::PC
-    cont_constraint::CC
-    num_steps::Int
-    scores::Vector{S}
-    acceptance_fn::F
-    rng::RNG
-    no_self_loops::Bool
-end
-
-Base.length(iter::FlipChainIter) = iter.num_steps
-function Base.eltype(::Type{<:FlipChainIter{G,P,PC,CC,S}}) where {G,P,PC,CC,S}
-    return Tuple{P,Dict{String,Any}}
-end
-
-function Base.iterate(iter::FlipChainIter)
-    return Base.iterate(iter, (1, iter.partition))
-end
-
-function Base.iterate(iter::FlipChainIter, state)
-    step, partition = state
-    if step > iter.num_steps
-        return nothing
-    end
-
-    step_completed = false
-    score_vals = nothing
-    next_partition = partition
-
-    while !step_completed
-        proposal = get_valid_proposal(
-            iter.graph, next_partition, iter.pop_constraint, iter.cont_constraint, iter.rng
-        )
-        custom_acceptance = iter.acceptance_fn !== always_accept
-        update_partition!(next_partition, iter.graph, proposal, custom_acceptance)
-
-        if custom_acceptance &&
-            !satisfies_acceptance_fn(next_partition, iter.acceptance_fn, iter.rng)
-            # go back to the previous partition
-            next_partition = next_partition.parent
-            # if user specifies this behavior, we do not increment the steps
-            # taken if the acceptance function fails.
-            if !iter.no_self_loops
-                score_vals = score_partition_from_proposal(
-                    iter.graph, next_partition, proposal, iter.scores
-                )
-                step_completed = true
-            end
-        else
-            score_vals = score_partition_from_proposal(
-                iter.graph, next_partition, proposal, iter.scores
-            )
-            step_completed = true
-        end
-    end
-
-    return (next_partition, score_vals), (step + 1, next_partition)
-end
-
-"""
-    flip_chain_iter(graph::AbstractGraph,
-                    partition::AbstractPartition,
-                    pop_constraint::PopulationConstraint,
-                    cont_constraint::ContiguityConstraint,
-                    num_steps::Int,
-                    scores::Array{S, 1};
-                    acceptance_fn::F=always_accept,
-                    rng::AbstractRNG=Random.default_rng(),
-                    no_self_loops::Bool=false,
-                    progress_bar::Bool=true) where {F<:Function, S<:AbstractScore}
-
-Runs a Markov Chain for `num_steps` steps using Flip proposals. Returns
-an iterator of `(Partition, score_vals)`. Note that `Partition` is mutable and
-will change in-place with each iteration -- a `deepcopy()` is needed if you wish
-to interact with the `Partition` object outside of the for loop.
-
-*Arguments:*
-- graph:              `AbstractGraph`
-- partition:          `AbstractPartition` with the plan information
-- pop_constraint:     `PopulationConstraint`
-- cont_constraint:    `ContiguityConstraint`
-- num_steps:          Number of steps to run the chain for
-- scores:             Array of `AbstractScore`s to capture at each step
-- acceptance_fn:      A function generating a probability in [0, 1]
-                      representing the likelihood of accepting the
-                      proposal
-- rng:                Random number generator. The user can pass in their
-                      own; otherwise, we use the default RNG from Random. Must
-                      implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
-                      (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
-- no\\_self\\_loops:  If this is true, then a failure to accept a new state
-                      is not considered a self-loop; rather, the chain
-                      simply generates new proposals until the acceptance
-                      function is satisfied. BEWARE - this can create
-                      infinite loops if the acceptance function is never
-                      satisfied!
-- progress_bar        If this is true, a progress bar will be printed to stdout.
-"""
-function flip_chain_iter(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    cont_constraint::ContiguityConstraint,
-    num_steps::Int,
-    scores::Array{S,1};
-    acceptance_fn::F=always_accept,
-    rng::AbstractRNG=Random.default_rng(),
-    no_self_loops::Bool=false,
-    progress_bar::Bool=true,
-) where {F<:Function,S<:AbstractScore}
-    iter = FlipChainIter(
-        graph,
-        partition,
-        pop_constraint,
-        cont_constraint,
-        num_steps,
-        collect(scores),
-        acceptance_fn,
-        rng,
-        no_self_loops,
-    )
-    if progress_bar
-        return ProgressBar(iter)
-    else
-        return iter
-    end
-end
-
-"""
-    flip_chain(graph::AbstractGraph,
-               partition::AbstractPartition,
-               pop_constraint::PopulationConstraint,
-               cont_constraint::ContiguityConstraint,
-               num_steps::Int,
-               scores::Array{S, 1};
-               acceptance_fn::F=always_accept,
-               rng::AbstractRNG = Random.default_rng(),
-               no_self_loops::Bool=false,
-               progress_bar::Bool=true)::ChainScoreData where {F<:Function, S<:AbstractScore}
-
-Runs a Markov Chain for `num_steps` steps using Flip proposals. Returns
-a `ChainScoreData` object which can be queried to retrieve the values of
-every score at each step of the chain.
-
-*Arguments:*
-- graph:              `AbstractGraph`
-- partition:          `AbstractPartition` with the plan information
-- pop_constraint:     `PopulationConstraint`
-- cont_constraint:    `ContiguityConstraint`
-- num_steps:          Number of steps to run the chain for
-- scores:             Array of `AbstractScore`s to capture at each step
-- acceptance_fn:      A function generating a probability in [0, 1]
-                      representing the likelihood of accepting the
-                      proposal
-- rng:                Random number generator. The user can pass in their
-                      own; otherwise, we use the default RNG from Random. Must
-                      implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
-                      (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
-- no\\_self\\_loops:  If this is true, then a failure to accept a new state
-                      is not considered a self-loop; rather, the chain
-                      simply generates new proposals until the acceptance
-                      function is satisfied. BEWARE - this can create
-                      infinite loops if the acceptance function is never
-                      satisfied!
-- progress_bar        If this is true, a progress bar will be printed to stdout.
-"""
-function flip_chain(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    cont_constraint::ContiguityConstraint,
-    num_steps::Int,
-    scores::Array{S,1};
-    acceptance_fn::F=always_accept,
-    rng::AbstractRNG=Random.default_rng(),
-    no_self_loops::Bool=false,
-    progress_bar::Bool=true,
-)::ChainScoreData where {F<:Function,S<:AbstractScore}
-    first_scores = score_initial_partition(graph, partition, scores)
-    chain_scores = ChainScoreData(deepcopy(scores), [first_scores])
-
-    for (_, score_vals) in flip_chain_iter(
-        graph,
-        partition,
-        pop_constraint,
-        cont_constraint,
-        num_steps,
-        scores;
-        acceptance_fn=acceptance_fn,
-        rng=rng,
-        no_self_loops=no_self_loops,
-        progress_bar=progress_bar,
-    )
-        push!(chain_scores.step_values, score_vals)
-    end
-
-    return chain_scores
 end

@@ -118,32 +118,24 @@ function traverse_mst(
 end
 
 """
-    get_balanced_proposal(graph::AbstractGraph,
-                          mst_edges::BitSet,
-                          mst_nodes::BitSet,
-                          partition::AbstractPartition,
-                          pop_constraint::PopulationConstraint,
-                          D₁::Int,
-                          D₂::Int)
+    get_balanced_proposal(graph, mst_edges, mst_nodes, partition, min_pop, max_pop, D₁, D₂)
+        -> Union{RecomProposal, DummyProposal}
 
-Tries to find a balanced cut on the subgraph induced by `mst_edges` and
-`mst_nodes` such that the population is balanced according to
-`pop_constraint`.
-This subgraph was formed by the combination of districts `D₁` and `D₂`.
+Attempts a balanced cut on the spanning tree subgraph formed by merging districts
+`D₁` and `D₂`. Each MST edge is tried as a cut; the first that produces two
+components whose populations both lie in `[min_pop, max_pop]` is returned as
+a `RecomProposal`. Returns `DummyProposal` if no balanced cut exists.
 
-Note: This is the `:edge_scan` method. It is simpler but slower than the
-subtree population method because it performs a full MST traversal for each
-candidate cut edge, running in O(|V| * |E_mst|) time where |E_mst| is the number
-of edges in the MST. It also allocates memory for the stack and component
-during iteration. For a faster, non-allocating version, use
-`get_balanced_proposal_subtree_population`.
+This is the `:edge_scan` method — simpler but O(|V|·|E_mst|) per call.
+Prefer `get_balanced_proposal_subtree_population` for performance.
 """
 function get_balanced_proposal(
     graph::AbstractGraph,
     mst_edges::BitSet,
     mst_nodes::BitSet,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
+    min_pop::Int,
+    max_pop::Int,
     D₁::Int,
     D₂::Int,
 )
@@ -163,7 +155,7 @@ function get_balanced_proposal(
         population₁ = get_subgraph_population(graph, component₁)
         population₂ = subgraph_pop - population₁
 
-        if satisfy_constraint(pop_constraint, population₁, population₂)
+        if population₁ >= min_pop && population₁ <= max_pop && population₂ >= min_pop && population₂ <= max_pop
             component₂ = setdiff(mst_nodes, component₁)
             proposal = RecomProposal(
                 D₁, D₂, population₁, population₂, component₁, component₂
@@ -176,9 +168,6 @@ end
 
 """
     get_balanced_proposal_subtree_population(graph, mst_edges, mst_nodes,
-        partition, pop_constraint, D₁, D₂; scratch=nothing)
-
-Tries to find a balanced cut on the subgraph induced by `mst_edges` and
 `mst_nodes` such that the population is balanced according to `pop_constraint`.
 
 Note: This is the `:subtree_population` method. It is the default cut method.
@@ -196,7 +185,8 @@ function get_balanced_proposal_subtree_population(
     mst_edges::BitSet,
     mst_nodes::BitSet,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
+    min_pop::Int,
+    max_pop::Int,
     D₁::Int,
     D₂::Int;
     scratch::Union{SubtreeCutScratch,Nothing}=nothing,
@@ -268,7 +258,7 @@ function get_balanced_proposal_subtree_population(
         end
         population₂ = subgraph_pop - population₁
 
-        if satisfy_constraint(pop_constraint, population₁, population₂)
+        if population₁ >= min_pop && population₁ <= max_pop && population₂ >= min_pop && population₂ <= max_pop
             component₁ = _collect_component_dense!(scratch, u, v)
             component₂ = setdiff(mst_nodes, component₁)
             return RecomProposal(D₁, D₂, population₁, population₂, component₁, component₂)
@@ -348,7 +338,8 @@ Returns a `RecomProposal` or `nothing`.
 function _try_valid_proposal(
     graph::AbstractGraph,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
+    min_pop::Int,
+    max_pop::Int,
     rng::AbstractRNG,
     opts::_RecomInternalOptions;
     scratch::Union{MSTScratch,Nothing}=nothing,
@@ -372,13 +363,14 @@ function _try_valid_proposal(
                 mst_edges,
                 sg_nodes,
                 partition,
-                pop_constraint,
+                min_pop,
+                max_pop,
                 D₁,
                 D₂;
                 scratch=cut_scratch,
             )
         elseif opts.cut_method === :edge_scan
-            get_balanced_proposal(graph, mst_edges, sg_nodes, partition, pop_constraint, D₁, D₂)
+            get_balanced_proposal(graph, mst_edges, sg_nodes, partition, min_pop, max_pop, D₁, D₂)
         else
             throw(
                 ArgumentError(
@@ -406,19 +398,11 @@ function _first_valid_proposal(results)
     return nothing
 end
 
-"""
-    get_valid_proposal(graph::AbstractGraph,
-                       partition::AbstractPartition,
-                       pop_constraint::PopulationConstraint,
-                       rng::AbstractRNG,
-                       opts::_RecomInternalOptions)
-
-*Returns* a population balanced proposal using the configured options in `opts`.
-"""
 function get_valid_proposal(
     graph::AbstractGraph,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
+    min_pop::Int,
+    max_pop::Int,
     rng::AbstractRNG,
     opts::_RecomInternalOptions,
 )
@@ -439,7 +423,8 @@ function get_valid_proposal(
             proposal = _try_valid_proposal(
                 graph,
                 partition,
-                pop_constraint,
+                min_pop,
+                max_pop,
                 rng,
                 opts;
                 scratch=mst_scratch,
@@ -459,7 +444,8 @@ function get_valid_proposal(
                 _try_valid_proposal(
                     graph,
                     partition,
-                    pop_constraint,
+                    min_pop,
+                    max_pop,
                     task_rng,
                     opts;
                     scratch=scratch,
@@ -474,47 +460,51 @@ function get_valid_proposal(
 end
 
 """
-    get_valid_proposal(graph::AbstractGraph,
-                       partition::AbstractPartition,
-                       pop_constraint::PopulationConstraint,
-                       rng::AbstractRNG,
-                       num_tries::Int=3;
-                       tree_method::Symbol=:kruskal,
-                       n_parallel::Int=1,
-                       cut_method::Symbol=:subtree_population)
+    get_valid_recom_proposal(graph, partition, [rng], [num_tries]; tolerance=0.01,
+                             tree_method=:kruskal, n_parallel=1,
+                             cut_method=:subtree_population) -> RecomProposal
 
-*Returns* a population balanced proposal.
+Returns a population-balanced ReCom proposal within `tolerance` (default 0.01,
+meaning each new district must be within ±1% of ideal population).
 
-*Arguments:*
-    - graph:          AbstractGraph
-    - partition:      AbstractPartition
-    - pop_constraint: PopulationConstraint to adhere to
-    - num_tries:      num times to try getting a balanced cut from a subgraph
-                      before giving up
-    - rng:            A random number generator that implements the
-                      [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
-                      (e.g. `Random.default_rng()` or `MersenneTwister(1234)`)
-    - tree_method:    `:kruskal` (default) or `:wilson` (uniform spanning tree)
-    - n_parallel:     number of concurrent proposal attempts (`1` = serial).
-                      With `n_parallel > 1`, tasks use independent RNGs; the
-                      lowest task index among successes in a batch wins.
-    - cut_method:     `:subtree_population` (default; O(N) cut search) or
-                      `:edge_scan` (walk-and-sum each side per edge)
+- `num_tries`: MST samples per subgraph before resampling a new subgraph.
+- `tree_method`: `:kruskal` (default) or `:wilson` for uniform spanning trees.
+- `n_parallel`: number of concurrent proposal attempts (`1` = serial).
+- `cut_method`: `:subtree_population` (default, O(N)) or `:edge_scan`.
 """
-function get_valid_proposal(
+function get_valid_recom_proposal(
     graph::AbstractGraph,
     partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    rng::AbstractRNG,
+    rng::AbstractRNG=Random.default_rng(),
     num_tries::Int=3;
+    tolerance::Float64=0.01,
     tree_method::Symbol=:kruskal,
     n_parallel::Int=1,
     cut_method::Symbol=:subtree_population,
 )
-    opts = _RecomInternalOptions(
-        num_tries, tree_method, cut_method, n_parallel
-    )
-    return get_valid_proposal(graph, partition, pop_constraint, rng, opts)
+    ideal_pop = total_pop(graph) / num_dists(partition)
+    min_pop = Int(ceil((1 - tolerance) * ideal_pop))
+    max_pop = Int(floor((1 + tolerance) * ideal_pop))
+    opts = _RecomInternalOptions(num_tries, tree_method, cut_method, n_parallel)
+    return get_valid_proposal(graph, partition, min_pop, max_pop, rng, opts)
+end
+
+"""
+    recom_proposal(graph, partition; tolerance=0.01, rng=Random.default_rng()) -> Partition
+
+High-level ReCom proposal function. Generates a population-balanced `RecomProposal`
+and returns a new `Partition` with the proposal applied.
+Intended for use as the `proposal` argument to `MarkovChain`.
+"""
+function recom_proposal(
+    graph::AbstractGraph,
+    partition::AbstractPartition;
+    tolerance::Float64=0.01,
+    rng::AbstractRNG=Random.default_rng(),
+)
+    prop = get_valid_recom_proposal(graph, partition, rng; tolerance=tolerance)
+    p_next = clone_for_update(partition)
+    return update_partition!(p_next, graph, prop)
 end
 
 """
@@ -554,221 +544,4 @@ function update_partition!(
     partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 
     return update_partition_adjacency(partition, graph)
-end
-
-"""
-    RecomChainIter
-
-Stateful custom iterator type representing a ReCom Markov Chain.
-Iterating over this object yields `(partition, score_vals)` at each step.
-"""
-struct RecomChainIter{
-    G<:AbstractGraph,
-    P<:AbstractPartition,
-    C<:PopulationConstraint,
-    S<:AbstractScore,
-    F<:Function,
-    RNG<:AbstractRNG,
-}
-    graph::G
-    partition::P
-    pop_constraint::C
-    num_steps::Int
-    scores::Vector{S}
-    opts::_RecomInternalOptions
-    acceptance_fn::F
-    rng::RNG
-    no_self_loops::Bool
-end
-
-Base.length(iter::RecomChainIter) = iter.num_steps
-Base.eltype(::Type{<:RecomChainIter{G,P,C,S}}) where {G,P,C,S} = Tuple{P,Dict{String,Any}}
-
-function Base.iterate(iter::RecomChainIter)
-    return Base.iterate(iter, (1, iter.partition))
-end
-
-function Base.iterate(iter::RecomChainIter, state)
-    step, partition = state
-    if step > iter.num_steps
-        return nothing
-    end
-
-    step_completed = false
-    score_vals = nothing
-    next_partition = partition
-
-    while !step_completed
-        proposal = get_valid_proposal(
-            iter.graph, next_partition, iter.pop_constraint, iter.rng, iter.opts
-        )
-        custom_acceptance = iter.acceptance_fn !== always_accept
-        update_partition!(next_partition, iter.graph, proposal, custom_acceptance)
-
-        if custom_acceptance &&
-            !satisfies_acceptance_fn(next_partition, iter.acceptance_fn, iter.rng)
-            # go back to the previous partition
-            next_partition = next_partition.parent
-            # if user specifies this behavior, we do not increment the steps
-            # taken if the acceptance function fails.
-            if !iter.no_self_loops
-                score_vals = score_partition_from_proposal(
-                    iter.graph, next_partition, proposal, iter.scores
-                )
-                step_completed = true
-            end
-        else
-            score_vals = score_partition_from_proposal(
-                iter.graph, next_partition, proposal, iter.scores
-            )
-            step_completed = true
-        end
-    end
-
-    return (next_partition, score_vals), (step + 1, next_partition)
-end
-
-"""
-    recom_chain_iter(graph::AbstractGraph,
-                partition::AbstractPartition,
-                pop_constraint::PopulationConstraint,
-                num_steps::Int,
-                scores::Array{S, 1};
-                num_tries::Int=3,
-                acceptance_fn::F=always_accept,
-                rng::AbstractRNG=Random.default_rng(),
-                no_self_loops::Bool=false,
-                region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
-                tree_method::Symbol=:kruskal,
-                n_parallel::Int=1,
-                cut_method::Symbol=:subtree_population,
-                progress_bar::Bool=true) where {F<:Function,S<:AbstractScore}
-
-Runs a Markov Chain for `num_steps` steps using ReCom. Returns an iterator
-of `(Partition, score_vals)`. Note that `Partition` is mutable and will change
-in-place with each iteration -- use `clone_for_update` if you wish to interact
-with the `Partition` object outside of the for loop.
-
-*Arguments:*
-- graph:            `AbstractGraph`
-- partition:        `AbstractPartition` with the plan information
-- pop_constraint:   `PopulationConstraint`
-- num_steps:        Number of steps to run the chain for
-- scores:           Array of `AbstractScore`s to capture at each step
-- num_tries:        num times to try getting a balanced cut from a subgraph
-                    before giving up
-- acceptance_fn:    A function generating a probability in [0, 1]
-                    representing the likelihood of accepting the
-                    proposal. Should accept a `Partition` as input.
-- rng:              Random number generator. The user can pass in their
-                    own; otherwise, we use the default RNG from Random. Must
-                    implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
-                    (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
-- no\\_self\\_loops: If this is true, then a failure to accept a new state
-                    is not considered a self-loop; rather, the chain
-                    simply generates new proposals until the acceptance
-                    function is satisfied. BEWARE - this can create
-                    infinite loops if the acceptance function is never
-                    satisfied!
-- region_surcharges: Optional region-boundary MST surcharges (Kruskal only)
-- tree_method:      `:kruskal` or `:wilson`
-- n_parallel:       concurrent proposal attempts per step (default `1`)
-- cut_method:       `:subtree_population` (default) or `:edge_scan`
-- progress_bar      If this is true, a progress bar will be printed to stdout.
-"""
-function recom_chain_iter(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    num_steps::Int,
-    scores::Array{S,1};
-    num_tries::Int=3,
-    acceptance_fn::F=always_accept,
-    rng::AbstractRNG=Random.default_rng(),
-    no_self_loops::Bool=false,
-    progress_bar::Bool=true,
-    tree_method::Symbol=:kruskal,
-    n_parallel::Int=1,
-    cut_method::Symbol=:subtree_population,
-) where {F<:Function,S<:AbstractScore}
-    opts = _RecomInternalOptions(
-        num_tries, tree_method, cut_method, n_parallel
-    )
-    iter = RecomChainIter(
-        graph,
-        partition,
-        pop_constraint,
-        num_steps,
-        collect(scores),
-        opts,
-        acceptance_fn,
-        rng,
-        no_self_loops,
-    )
-    if progress_bar
-        return ProgressBar(iter)
-    else
-        return iter
-    end
-end
-
-"""
-    recom_chain(graph::AbstractGraph,
-                partition::AbstractPartition,
-                pop_constraint::PopulationConstraint,
-                num_steps::Int,
-                scores::Array{S, 1};
-                num_tries::Int=3,
-                acceptance_fn::F=always_accept,
-                rng::AbstractRNG=Random.default_rng(),
-                no_self_loops::Bool=false,
-                region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
-                tree_method::Symbol=:kruskal,
-                n_parallel::Int=1,
-                cut_method::Symbol=:subtree_population,
-                progress_bar::Bool=true)::ChainScoreData where {F<:Function, S<:AbstractScore}
-
-Runs a Markov Chain for `num_steps` steps using ReCom. Returns a `ChainScoreData`
-object which can be queried to retrieve the values of every score at each
-step of the chain.
-
-See [`recom_chain_iter`](@ref) for details on arguments.
-"""
-function recom_chain(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    pop_constraint::PopulationConstraint,
-    num_steps::Int,
-    scores::Array{S,1};
-    num_tries::Int=3,
-    acceptance_fn::F=always_accept,
-    rng::AbstractRNG=Random.default_rng(),
-    no_self_loops::Bool=false,
-    progress_bar::Bool=true,
-    tree_method::Symbol=:kruskal,
-    n_parallel::Int=1,
-    cut_method::Symbol=:subtree_population,
-)::ChainScoreData where {F<:Function,S<:AbstractScore}
-    first_scores = score_initial_partition(graph, partition, scores)
-    chain_scores = ChainScoreData(deepcopy(scores), [first_scores])
-
-    for (_, score_vals) in recom_chain_iter(
-        graph,
-        partition,
-        pop_constraint,
-        num_steps,
-        scores;
-        num_tries=num_tries,
-        acceptance_fn=acceptance_fn,
-        rng=rng,
-        no_self_loops=no_self_loops,
-        progress_bar=progress_bar,
-        tree_method=tree_method,
-        n_parallel=n_parallel,
-        cut_method=cut_method,
-    )
-        push!(chain_scores.step_values, score_vals)
-    end
-
-    return chain_scores
 end

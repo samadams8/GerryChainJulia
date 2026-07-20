@@ -92,10 +92,10 @@
     @test num_dists(stub_p) == 2
     @test assignments(stub_p) == [1, 1, 2]
 
-    # PopulationConstraint accepts abstracts
-    pop_c = PopulationConstraint(stub_g, stub_p, 0.1)
-    @test pop_c isa PopulationConstraint
-    @test satisfy_constraint(pop_c, 15, 15)
+    # population constraint accepts abstracts
+    @test within_population_bounds(stub_p, 10, 20)
+    validator = population_constraint(0.5)
+    @test validator(stub_g, stub_p)
 
     # clone_for_update isolation on stub
     cloned = clone_for_update(stub_p)
@@ -128,7 +128,7 @@ end
     @test cloned.dist_nodes[2] === partition.dist_nodes[2]  # still shared
 
     # PartitionBuffers reuse path
-    buffers = PartitionBuffers(partition)
+    buffers = GerryChain.PartitionBuffers(partition)
     cloned2 = clone_for_update(partition, buffers)
     @test parent(cloned2) === partition
     @test cloned2.assignments !== partition.assignments
@@ -145,7 +145,7 @@ end
         union(partition.dist_nodes[2], 1),
     )
     before = copy(partition.assignments)
-    update_partition!(partition, graph, proposal, true)
+    GerryChain.update_partition!(partition, graph, proposal, true)
     @test partition.parent isa Partition
     @test partition.parent.assignments == before
     @test partition.parent.parent === nothing

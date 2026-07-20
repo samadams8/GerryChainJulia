@@ -24,10 +24,11 @@ tests = [
     "constraints",
     "flip",
     "recom",
-    "scores",
     "accept",
     "election",
     "plot",
+    "test_chain",
+    "test_optimizers",
     "test_extensibility",
 ]
 

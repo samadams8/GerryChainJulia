@@ -11,12 +11,12 @@
     # partition doesn't have a "parent" defined yet, so the call to
     # satisfies_acceptance_fn should fail here. As a reminder, all partitions
     # passed to an acceptance function should have the parent field assigned.
-    @test_throws AssertionError satisfies_acceptance_fn(partition, always_accept)
+    @test_throws AssertionError GerryChain.satisfies_acceptance_fn(partition, always_accept)
 
     partition.parent = deepcopy(partition)
-    @test_throws ArgumentError satisfies_acceptance_fn(partition, inval_acc_fn_1)
-    @test_throws ArgumentError satisfies_acceptance_fn(partition, inval_acc_fn_2)
-    @test_throws MethodError satisfies_acceptance_fn(partition, inval_acc_fn_3)
-    @test satisfies_acceptance_fn(partition, always_pass) == true
-    @test satisfies_acceptance_fn(partition, always_fail) == false
+    @test_throws ArgumentError GerryChain.satisfies_acceptance_fn(partition, inval_acc_fn_1)
+    @test_throws ArgumentError GerryChain.satisfies_acceptance_fn(partition, inval_acc_fn_2)
+    @test_throws MethodError GerryChain.satisfies_acceptance_fn(partition, inval_acc_fn_3)
+    @test GerryChain.satisfies_acceptance_fn(partition, always_pass) == true
+    @test GerryChain.satisfies_acceptance_fn(partition, always_fail) == false
 end

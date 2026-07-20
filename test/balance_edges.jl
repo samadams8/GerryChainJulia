@@ -127,7 +127,8 @@ end
     tri._mst_base_weights[] = nothing
     add_region_column!(tri, "county", UInt32[1, 1, 2])
     # edge 1-2 is in-region; 2-3 and 1-3 cross
-    configure_mst_weights!(tri; region_surcharges = Dict("county" => 1e9))
+    # edge 1-2 is in-region; 2-3 and 1-3 cross
+    GerryChain.configure_mst_weights!(tri; region_surcharges = Dict("county" => 1e9))
     rng = MersenneTwister(2)
     mst2 = GerryChain._kruskal_mst(
         tri,
@@ -143,18 +144,18 @@ end
     fill!(tri.edge_penalties, 0.0)
     tri._mst_base_weights[] = nothing
     
-    configure_mst_weights!(tri; region_surcharges = Dict("muni" => 100.0))
+    GerryChain.configure_mst_weights!(tri; region_surcharges = Dict("muni" => 100.0))
     weights_null = zeros(3)
-    build_mst_weights!(
+    GerryChain.build_mst_weights!(
         weights_null,
         tri,
         edges,
         MersenneTwister(3),
     )
     
-    configure_mst_weights!(tri)
+    GerryChain.configure_mst_weights!(tri)
     weights_base = zeros(3)
-    build_mst_weights!(
+    GerryChain.build_mst_weights!(
         weights_base,
         tri,
         edges,
@@ -188,7 +189,7 @@ end
         graph.adj_matrix[4, 8],
     ]
     rng = MersenneTwister(99)
-    tree = wilson_ust(graph, edges, nodes, rng)
+    tree = GerryChain.wilson_ust(graph, edges, nodes, rng)
     @test length(tree) == length(nodes) - 1
     connected_vs = DisjointSets{Int}(nodes)
     cycle_found = false
@@ -211,11 +212,11 @@ end
     nodes = collect(1:16)
     edges = collect(1:graph.num_edges)
     weights = rand(MersenneTwister(1), length(edges))
-    scratch = MSTScratch(length(edges), maximum(nodes))
-    mst1 = kruskal_mst!(scratch, graph, edges, nodes, weights)
+    scratch = GerryChain.MSTScratch(length(edges), maximum(nodes))
+    mst1 = GerryChain.kruskal_mst!(scratch, graph, edges, nodes, weights)
     mst2 = GerryChain.kruskal_mst(graph, edges, nodes, weights)
     @test mst1 == mst2
     # reuse scratch
-    mst3 = kruskal_mst!(scratch, graph, edges, nodes, weights)
+    mst3 = GerryChain.kruskal_mst!(scratch, graph, edges, nodes, weights)
     @test mst3 == mst2
 end

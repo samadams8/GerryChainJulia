@@ -178,35 +178,6 @@ end
 
 
 """
-    score_boxplot(chain_data::ChainScoreData,
-                  score_name::String; kwargs...)
-
-Creates a graph with boxplot(s) of the values of scores throughout
-the chain.
-
-*Arguments:*
-- chain_data  : ChainScoreData object that contains the values of scores at
-                every step of the chain
-- score_name  : name of the score (i.e., the `name` field of an AbstractScore)
-- kwargs      : Optional arguments, including label, comparison\\_scores, and
-                sort\\_by\\_score (the latter should only be passed for
-                district-level scores).
-
-*Returns* a MatPlotLib Axis object with the boxplot.
-"""
-function score_boxplot(chain_data::ChainScoreData, score_name::String; kwargs...)
-    score, nested_key = get_score_by_name(chain_data, score_name)
-    if score isa CompositeScore
-        throw(ArgumentError("Cannot make a boxplot of a CompositeScore"))
-    end
-    score_vals = get_score_values(chain_data.step_values, score, nested_key = nested_key)
-    ax = score_boxplot(score_vals; kwargs...)
-    ax.set_ylabel(score_name)
-    return ax
-end
-
-
-"""
     score_histogram(score_values::Array{S, 1};
                     comparison_scores::Array=[],
                     bins::Union{Nothing, Int, Vector}=nothing,
@@ -258,35 +229,5 @@ function score_histogram(
         end
         ax.legend()
     end
-    return ax
-end
-
-
-"""
-    score_histogram(chain_data::ChainScoreData,
-                    score_name::String; kwargs...)
-
-Creates a graph with histogram of the values of a score throughout the chain.
-Only applicable for scores of type PlanScore.
-
-*Arguments:*
-- chain_data  : ChainScoreData object that contains the values of scores at
-                every step of the chain
-- score_name  : name of the score (i.e., the `name` field of an AbstractScore)
-- kwargs      : Optional arguments, including comparison_scores and other
-                matplotlib arguments.
-
-*Returns* a MatPlotLib Axis object with the histogram.
-"""
-function score_histogram(chain_data::ChainScoreData, score_name::String; kwargs...)
-    score, nested_key = get_score_by_name(chain_data, score_name)
-    # throw argument error if score passed was not a PlanScore
-    if !(score isa PlanScore)
-        throw(ArgumentError("Can only create histogram plot of a PlanScore"))
-    end
-    score_vals = get_score_values(chain_data.step_values, score, nested_key = nested_key)
-    ax = score_histogram(score_vals; kwargs...)
-    ax.set_ylabel("Frequency")
-    ax.set_xlabel(score_name)
     return ax
 end

@@ -138,7 +138,7 @@ using DataStructures
 
     # test induced_subgraph
     @testset "induced_subgraph_edges()" begin
-        induced_edges = induced_subgraph_edges(graph, [1, 2, 3, 4])
+        induced_edges = GerryChain.induced_subgraph_edges(graph, [1, 2, 3, 4])
         @test sort(induced_edges) == sort([1, 3, 5])
 
         induced_vertices = Set{Int}()
@@ -147,15 +147,15 @@ using DataStructures
         end
         @test induced_vertices == Set{Int}([1, 2, 3, 4])
 
-        @test induced_subgraph_edges(graph, Int[]) == Int[]
-        @test isempty(induced_subgraph_edges(graph, [5]))  # isolated in induced sense if no self-loop
+        @test GerryChain.induced_subgraph_edges(graph, Int[]) == Int[]
+        @test isempty(GerryChain.induced_subgraph_edges(graph, [5]))  # isolated in induced sense if no self-loop
     end
-    @test_throws ArgumentError induced_subgraph_edges(graph, [1, 1, 4])
+    @test_throws ArgumentError GerryChain.induced_subgraph_edges(graph, [1, 1, 4])
 
     # get_subgraph_population()
-    @test get_subgraph_population(graph, BitSet([1, 2, 3, 4])) == 50
-    @test get_subgraph_population(graph, BitSet([5])) == 1
-    @test get_subgraph_population(graph, BitSet([1, 6, 11, 16])) == 60
+    @test GerryChain.get_subgraph_population(graph, BitSet([1, 2, 3, 4])) == 50
+    @test GerryChain.get_subgraph_population(graph, BitSet([5])) == 1
+    @test GerryChain.get_subgraph_population(graph, BitSet([1, 6, 11, 16])) == 60
 
     # test that attributes can be accessed
     @test graph.attributes[1]["purple"] == 15
@@ -170,7 +170,7 @@ using DataStructures
         eid = graph.adj_matrix[u, v]
         @test edge_penalties(graph)[eid] == 5.0
 
-        set_edge_penalties_from_pairs!(graph, Dict((2, 3) => 7.5, (3, 4) => 1.0))
+        GerryChain.set_edge_penalties_from_pairs!(graph, Dict((2, 3) => 7.5, (3, 4) => 1.0))
         @test edge_penalties(graph)[graph.adj_matrix[2, 3]] == 7.5
         @test edge_penalties(graph)[graph.adj_matrix[3, 4]] == 1.0
 
@@ -200,7 +200,7 @@ using DataStructures
         @test muni_ids[5] == UInt32(0)
 
         # configure_mst_weights! tests
-        configure_mst_weights!(graph; region_surcharges=Dict("county" => 10.0))
+        GerryChain.configure_mst_weights!(graph; region_surcharges=Dict("county" => 10.0))
         # Ensure base weights cache exists
         @test graph._mst_base_weights[] !== nothing
         # Test that cross-boundary edges in "county" get surcharge, in-boundary do not
@@ -271,10 +271,7 @@ using DataStructures
         @test public == col1
         @test public !== col1
 
-        partition = Partition(g, "assignment")
-        score = DistrictAggregate("purple")
-        expected = sum(g.attributes[n]["purple"] for n in partition.dist_nodes[1])
-        @test eval_score_on_district(g, partition, score, 1) == expected
+
 
         old = g.attributes[1]["purple"]
         set_attribute!(g, 1, "purple", old + 1)

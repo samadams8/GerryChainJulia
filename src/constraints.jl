@@ -1,110 +1,69 @@
-abstract type AbstractConstraint end
+"""
+    within_population_bounds(partition::AbstractPartition, min_pop::Int, max_pop::Int) -> Bool
 
-struct PopulationConstraint <: AbstractConstraint
-    min_pop::Int
-    max_pop::Int
+Returns `true` if all district populations in `partition` are between `min_pop` and `max_pop` (inclusive).
+"""
+function within_population_bounds(partition::AbstractPartition, min_pop::Int, max_pop::Int)::Bool
+    pops = dist_populations(partition)
+    for p in pops
+        (p < min_pop || p > max_pop) && return false
+    end
+    return true
 end
 
 """
-    ContiguityConstraint()
+    within_percent_of_ideal_population(graph::AbstractGraph, partition::AbstractPartition, tolerance::Float64=0.01) -> Bool
 
-Initializes and returns a `ContiguityConstraint` object with reusable
-search buffers for Flip contiguity checks.
+Returns `true` if all district populations in `partition` are within `tolerance` percentage of ideal population.
 """
-mutable struct ContiguityConstraint <: AbstractConstraint
-    visited::BitVector
-    queue::Vector{Int}
-    ContiguityConstraint() = new(BitVector(), sizehint!(Int[], 64))
-end
-
-"""
-    PopulationConstraint(graph::BaseGraph,
-                         partition::Partition,
-                         tolerance::Float64)::PopulationConstraint
-
-Initializes a `PopulationConstraint` that stores the minimum and maximum populations
-a district in a `partition` could have within `tolerance`.
-
-*Returns* the PopulationConstraint object.
-"""
-function PopulationConstraint(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    tolerance::Float64,
-)::PopulationConstraint
+function within_percent_of_ideal_population(
+    graph::AbstractGraph, partition::AbstractPartition, tolerance::Float64=0.01
+)::Bool
     ideal_pop = total_pop(graph) / num_dists(partition)
-
-    # no particular reason to not use floor() instead of ceil()
     min_pop = Int(ceil((1 - tolerance) * ideal_pop))
     max_pop = Int(floor((1 + tolerance) * ideal_pop))
-    return PopulationConstraint(min_pop, max_pop)
+    return within_population_bounds(partition, min_pop, max_pop)
 end
 
 """
-    satisfy_constraint(constraint::PopulationConstraint,
-                       proposal::RecomProposal)
+    population_constraint(tolerance::Float64=0.01) -> Function
 
-Test whether a RecomProposal satisfies a population constraint.
+Returns a validator function `(graph, partition) -> Bool` for population balance within `tolerance`.
 """
-function satisfy_constraint(constraint::PopulationConstraint, proposal::RecomProposal)
-    if proposal.D₁_pop >= constraint.min_pop && proposal.D₁_pop <= constraint.max_pop
-        if proposal.D₂_pop >= constraint.min_pop && proposal.D₂_pop <= constraint.max_pop
-            return true
-        end
-    end
-    return false
+function population_constraint(tolerance::Float64=0.01)
+    return (graph, partition) -> within_percent_of_ideal_population(graph, partition, tolerance)
 end
 
 """
-    satisfy_constraint(constraint::PopulationConstraint,
-                       D₁_pop::Int,
-                       D₂_pop::Int)
+    is_contiguous_flip(graph, partition, flip, [visited, [queue]]) -> Bool
 
-Test whether two population counts satisfy a PopulationConstraint.
-"""
-function satisfy_constraint(constraint::PopulationConstraint, D₁_pop::Int, D₂_pop::Int)
-    if D₁_pop >= constraint.min_pop && D₁_pop <= constraint.max_pop
-        if D₂_pop >= constraint.min_pop && D₂_pop <= constraint.max_pop
-            return true
-        end
-    end
-    return false
-end
+Returns `true` if flipping `flip.node` from district `flip.D₁` to `flip.D₂`
+leaves `flip.D₁` contiguous. Uses BFS from each remaining neighbor of `flip.node`
+in `D₁` to verify they can reach each other without passing through `flip.node`.
 
+`visited` and `queue` are optional pre-allocated scratch buffers; providing them
+avoids repeated allocation when calling in a tight loop.
 """
-    satisfy_constraint(constraint::ContiguityConstraint,
-                       graph::BaseGraph,
-                       partition::Partition,
-                       flip::FlipProposal)
-
-Test whether a FlipProposal satisfies the contiguity constraint.
-Based on Parker's implementation on GitHub, located in the Flips.jl
-repository at src/constraints.jl.
-"""
-function satisfy_constraint(
-    constraint::ContiguityConstraint,
+function is_contiguous_flip(
     graph::AbstractGraph,
     partition::AbstractPartition,
     flip::FlipProposal,
+    visited::BitVector=BitVector(),
+    queue::Vector{Int}=sizehint!(Int[], 64),
 )
-    # get node's neighbors who were in its old district
     nbrs = neighbors(graph)
     asg = assignments(partition)
-    node_neighbors =
-        [n for n in nbrs[flip.node] if asg[n] == flip.D₁]
-    if isempty(node_neighbors) # this is the only node of this district left!
+    node_neighbors = [n for n in nbrs[flip.node] if asg[n] == flip.D₁]
+    if isempty(node_neighbors)
         return false
     end
     source_node = pop!(node_neighbors)
 
     n = num_nodes(graph)
-    visited = constraint.visited
     if length(visited) != n
         resize!(visited, n)
     end
-    queue = constraint.queue
 
-    # BFS search to verify contiguity is not broken
     @inbounds for target_node in node_neighbors
         fill!(visited, false)
         empty!(queue)

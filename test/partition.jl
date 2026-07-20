@@ -35,12 +35,15 @@
     graph = BaseGraph(square_grid_filepath, "population")
     partition = Partition(graph, "assignment")
     @test partition.num_dists == 4
+    @test num_dists(partition) == 4
 
     @test partition.num_cut_edges == 8
-    @test partition.dist_populations[1] == 41
-    @test partition.dist_populations[2] == 41
-    @test partition.dist_populations[3] == 41
-    @test partition.dist_populations[4] == 41
+    @test num_cut_edges(partition) == 8
+
+    @test dist_populations(partition)[1] == 41
+    @test dist_populations(partition)[2] == 41
+    @test dist_populations(partition)[3] == 41
+    @test dist_populations(partition)[4] == 41
 
     @testset "District Adjacency" begin
         for i = 1:partition.num_dists
