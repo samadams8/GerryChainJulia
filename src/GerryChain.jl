@@ -16,14 +16,14 @@ using LibSpatialIndex: LibSpatialIndex
 using Logging
 
 export
-    # Core abstract types & base structures
+    # Core abstract types and base structures.
     AbstractGraph,
     BaseGraph,
     AbstractPartition,
     Partition,
     clone_for_update,
 
-    # Graph & Partition accessors
+    # Graph & Partition accessors.
     num_nodes,
     num_edges,
     total_pop,
@@ -46,25 +46,25 @@ export
     set_attribute!,
     set_attributes!,
 
-    # Proposals
+    # Proposals.
     AbstractProposal,
     RecomProposal,
     FlipProposal,
     recom_proposal,
     flip_proposal,
 
-    # Constraints
+    # Constraints.
     within_population_bounds,
     within_percent_of_ideal_population,
     population_constraint,
     is_contiguous_flip,
 
-    # Acceptance functions
+    # Acceptance functions.
     always_accept,
     greedy_accept,
     simulated_annealing_accept,
 
-    # Election & metrics
+    # Election & metrics.
     AbstractElection,
     Election,
     ElectionTracker,
@@ -75,11 +75,11 @@ export
     wasted_votes,
     efficiency_gap,
 
-    # Plotting
+    # Plotting.
     score_boxplot,
     score_histogram,
 
-    # Chain iterators
+    # Chain iterators.
     AbstractChain,
     MarkovChain,
     CouponCollectorChain,
@@ -99,4 +99,4 @@ include("./election.jl")
 include("./plot.jl")
 include("./Chain.jl")
 
-end # module
+end  # module GerryChain

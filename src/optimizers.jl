@@ -1,7 +1,8 @@
 """
     greedy_accept(score_fn::Function; maximize::Bool=true) -> Function
 
-Returns an acceptance function `(graph, current_state, candidate) -> Float64` that greedily accepts candidates that improve or equal the `score_fn` value.
+Returns an acceptance function `(graph, current_state, candidate) -> Float64` that
+greedily accepts candidates that improve or equal the `score_fn` value.
 """
 function greedy_accept(score_fn::Function; maximize::Bool=true)
     return (graph, current_state, candidate) -> begin
@@ -15,7 +16,8 @@ end
 """
     simulated_annealing_accept(score_fn::Function, temp::Float64; maximize::Bool=true) -> Function
 
-Returns an acceptance function implementing the Metropolis criterion for simulated annealing.
+Returns an acceptance function implementing the Metropolis criterion for simulated
+annealing.
 """
 function simulated_annealing_accept(score_fn::Function, temp::Float64; maximize::Bool=true)
     return (graph, current_state, candidate) -> begin

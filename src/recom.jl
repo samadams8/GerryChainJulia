@@ -12,10 +12,10 @@ function sample_subgraph(
 )
     D₁, D₂ = sample_adjacent_districts_randomly(partition, rng)
 
-    # take all their nodes
+    # Take all their nodes.
     nodes = union(dist_nodes(partition)[D₁], dist_nodes(partition)[D₂])
 
-    # get a subgraph of these two districts
+    # Get a subgraph of these two districts.
     edges = induced_subgraph_edges(graph, collect(nodes))
 
     return D₁, D₂, edges, BitSet(nodes)
@@ -82,12 +82,12 @@ Returns the component of the MST `mst` that contains the vertex
 *Arguments:*
     - mst:        mst to traverse
     - start_node: the node to start traversing from
-    - avoid_node: the node to avoid adn which seperates the mst into
+    - avoid_node: the node to avoid and which separates the MST into
                   two components
     - stack:      an empty Stack
     - traversed_nodes: an empty BitSet that is to be populated.
 
-`stack` and `traversed_nodes` are are pre-allocated and passed in to
+`stack` and `traversed_nodes` are pre-allocated and passed in to
 reduce the number of memory allocations and consequently, time taken.
 In the course of calling this function multiple times, it is intended that
 we pass in the same (empty) objects repeatedly.
@@ -145,7 +145,7 @@ function get_balanced_proposal(
     srcs = edge_src(graph)
     dsts = edge_dst(graph)
 
-    # pre-allocated reusable data structures to reduce number of memory allocations
+    # Pre-allocated reusable data structures to reduce the number of memory allocations.
     stack = Stack{Int}()
     component_container = BitSet([])
 
@@ -221,7 +221,7 @@ function get_balanced_proposal_subtree_population(
     root = first(mst_nodes)
     empty!(stack)
     push!(stack, root)
-    parent[root] = root  # mark root as visited with self-parent
+    parent[root] = root  # Mark root as visited with self-parent.
     while !isempty(stack)
         u = pop!(stack)
         push!(order, u)
@@ -539,7 +539,7 @@ function update_partition!(
         partition.assignments[node] = proposal.D₂
     end
 
-    # Replace (do not mutate shared BitSets from a CoW clone)
+    # Replace (do not mutate shared BitSets from a CoW clone).
     partition.dist_nodes[proposal.D₁] = proposal.D₁_nodes
     partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 

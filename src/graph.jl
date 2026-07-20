@@ -4,16 +4,16 @@ struct BaseGraph <: AbstractGraph
     num_nodes::Int
     num_edges::Int
     total_pop::Int
-    populations::Array{Int,1}             # of length(num_nodes)
+    populations::Array{Int,1}  # Of length num_nodes.
     adj_matrix::SparseMatrixCSC{Int,Int}
-    edge_src::Array{Int,1}                # of length(num_edges)
-    edge_dst::Array{Int,1}                # of length(num_edges)
+    edge_src::Array{Int,1}  # Of length num_edges.
+    edge_dst::Array{Int,1}  # Of length num_edges.
     neighbors::Array{Array{Int64,1},1}
-    simple_graph::SimpleGraph              # the base SimpleGraph, if we need it
+    simple_graph::SimpleGraph  # The base SimpleGraph, if we need it.
     attributes::Array{Dict{String,Any}}
-    edge_penalties::Vector{Float64}       # of length(num_edges); index = edge id
-    region_cols::Dict{String,Vector{UInt32}}  # dense region id columns
-    _attr_cache::Dict{String,Vector{Float64}}  # lazy dense attribute columns
+    edge_penalties::Vector{Float64}  # Of length num_edges; index = edge ID.
+    region_cols::Dict{String,Vector{UInt32}}  # Dense region ID columns.
+    _attr_cache::Dict{String,Vector{Float64}}  # Lazy dense attribute columns.
     _mst_base_weights::Base.RefValue{Union{Vector{Float64},Nothing}}
 end
 
@@ -59,7 +59,7 @@ function BaseGraph(
     )
 end
 
-# --- AbstractGraph accessors (default concrete implementations) ---
+# AbstractGraph accessors (default concrete implementations).
 
 num_nodes(g::BaseGraph) = g.num_nodes
 num_edges(g::BaseGraph) = g.num_edges
@@ -118,7 +118,7 @@ function all_node_properties(table::Shapefile.Table)::Array{Dict{String,Any}}
     properties = propertynames(table) # returns array of symbols
     string_keys = String.(properties) # convert by broadcasting
 
-    # internal function because we want to use both properties and values
+    # Internal function because we want to use both properties and values.
     function get_node_properties(row::Shapefile.Row)
         values = map(p -> getproperty(row, p), properties)
         return Dict(string_keys .=> values)
@@ -170,20 +170,20 @@ coordinates are structured in the following way. Each element in the
 outermost array represents one polygon. (One node can be made up of
 multiple polygons).
 [
-    [                       # one array = one polygon
-        [                   # points corresponding to outer ring
-            [1.0, 2.0],     # single x,y coordinate of a point
+    [  # One array = one polygon.
+        [  # Points corresponding to outer ring.
+            [1.0, 2.0],  # Single x,y coordinate of a point.
             ...
         ],
-        [                   # points corresponding to a hole in polygon
+        [  # Points corresponding to a hole in polygon.
             [1.5, 1.7],
             ...
         ],
-        ...                 # any other subsequent arrays would
-                            # correspond to other holes
+        ...  # Any other subsequent arrays would
+             # correspond to other holes.
     ],
-    ...                     #  subsequent arrays correspond to other
-                            #  polygons
+    ...  # Subsequent arrays correspond to other
+         # polygons.
 ]
 """
 function get_node_coordinates(row::Shapefile.Row)::Vector{Vector{Vector{Vector{Float64}}}}
@@ -208,15 +208,15 @@ function graph_from_shp(
 
     attributes = all_node_properties(table)
     coords = get_node_coordinates.(table)
-    # these will be used in the adjacency method
+    # These will be used in the adjacency method.
     node_polys = polygon_array.(coords)
     node_mbrs = min_bounding_rect.(coords)
 
     graph = simple_graph_from_polygons(node_polys, node_mbrs, adjacency)
 
-    # edge `i` would connect nodes edge_src[i] and edge_dst[i]
+    # Edge `i` connects nodes edge_src[i] and edge_dst[i].
     edge_src, edge_dst = edges_from_graph(graph)
-    # each entry in adj_matrix is the edge id that connects the two nodes
+    # Each entry in adj_matrix is the edge ID that connects the two nodes.
     adj_matrix = adjacency_matrix_from_graph(graph)
     neighbors = neighbors_from_graph(graph)
 
@@ -253,7 +253,7 @@ of the destination nodes.
 function edges_from_graph(graph::SimpleGraph)
     num_edges = ne(graph)
 
-    # edge `i` would connect nodes edge_src[i] and edge_dst[i]
+    # Edge `i` connects nodes edge_src[i] and edge_dst[i].
     edge_src = zeros(Int, num_edges)
     edge_dst = zeros(Int, num_edges)
 
@@ -270,7 +270,7 @@ end
 Extract sparse adjacency matrix from graph.
 """
 function adjacency_matrix_from_graph(graph::SimpleGraph)
-    # each entry in adj_matrix is the edge id that connects the two nodes.
+    # Each entry in adj_matrix is the edge ID that connects the two nodes.
     num_nodes = nv(graph)
     adj_matrix = spzeros(Int, num_nodes, num_nodes)
     for (index, edge) in enumerate(edges(graph))
@@ -286,7 +286,7 @@ end
 Extract each node's neighbors from graph.
 """
 function neighbors_from_graph(graph::SimpleGraph)
-    # each entry in adj_matrix is the edge id that connects the two nodes.
+    # Each entry in the returned array is a list of neighbors of the corresponding node.
     neighbors = [Int[] for n = 1:nv(graph)]
     for (index, edge) in enumerate(edges(graph))
         push!(neighbors[src(edge)], dst(edge))
@@ -323,7 +323,7 @@ function graph_from_json(
     nodes = raw_graph["nodes"]
     num_nodes = length(nodes)
 
-    # get populations
+    # Get populations.
     populations = get_attribute_by_key(nodes, pop_col, population_to_int)
     total_pop = sum(populations)
 
@@ -339,13 +339,13 @@ function graph_from_json(
 
     num_edges = ne(simple_graph)
 
-    # edge `i` would connect nodes edge_src[i] and edge_dst[i]
+    # Edge `i` connects nodes edge_src[i] and edge_dst[i].
     edge_src, edge_dst = edges_from_graph(simple_graph)
-    # each entry in adj_matrix is the edge id that connects the two nodes
+    # Each entry in adj_matrix is the edge ID that connects the two nodes.
     adj_matrix = adjacency_matrix_from_graph(simple_graph)
     neighbors = neighbors_from_graph(simple_graph)
 
-    # get attributes
+    # Get attributes.
     attributes = get_attributes(nodes)
     region_cols = build_region_cols(attributes, region_columns)
 
@@ -594,7 +594,7 @@ function set_edge_penalties_from_pairs!(g::BaseGraph, penalties::AbstractVector{
     return g
 end
 
-# --- Unified MST weights configuration ---
+# Unified MST weights configuration.
 
 """
     configure_mst_weights!(graph::BaseGraph;
@@ -653,7 +653,7 @@ function _compute_mst_base_weights(
     return base
 end
 
-# --- Lazy Float64 attribute column cache ---
+# Lazy Float64 attribute column cache.
 
 function _materialize_attribute_column(g::BaseGraph, key::String)::Vector{Float64}
     n = g.num_nodes

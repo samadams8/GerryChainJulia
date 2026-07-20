@@ -13,7 +13,7 @@ end
 Election(parties::Vector{String}) = Election("Election", parties)
 
 """
-    vote_counts(graph::AbstractGraph, partition::AbstractPartition, party::String) -> Vector{Float64}
+    vote_count(graph::AbstractGraph, partition::AbstractPartition, party::String) -> Vector{Float64}
 
 Computes the total votes for `party` in each district of `partition`.
 """
@@ -33,7 +33,7 @@ function vote_count(graph::AbstractGraph, partition::AbstractPartition, party::S
 end
 
 """
-    vote_shares(graph::AbstractGraph, partition::AbstractPartition, party::String, total_pop_col::String) -> Vector{Float64}
+    vote_share(graph::AbstractGraph, partition::AbstractPartition, party::String, total_pop_col::String) -> Vector{Float64}
 
 Computes the vote share of `party` in each district of `partition`.
 """

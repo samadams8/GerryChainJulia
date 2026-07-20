@@ -14,13 +14,13 @@ function propose_random_flip(
     if num_cut_edges(partition) == 0
         throw(ArgumentError("No cut edges in the districting plan"))
     end
-    # select a random cut edge
+    # Select a random cut edge.
     cut_edge_idx = rand(rng, 1:num_cut_edges(partition))
     cut_edge_tracker = 0
     edge_idx = 0
     cut = cut_edges(partition)
-    # iterate through array of bools indicating cut edge, stop at the
-    # randomly chosen index-th edge
+    # Iterate through array of bools indicating cut edge, stop at the
+    # randomly chosen index-th edge.
     for i in 1:num_edges(graph)
         cut_edge_tracker += cut[i]
         if cut_edge_tracker == cut_edge_idx
@@ -28,7 +28,7 @@ function propose_random_flip(
             break
         end
     end
-    # randomly choose which of the nodes from the edge get flipped
+    # Randomly choose which of the nodes from the edge get flipped.
     srcs = edge_src(graph)
     dsts = edge_dst(graph)
     edge = (srcs[edge_idx], dsts[edge_idx])
@@ -38,11 +38,11 @@ function propose_random_flip(
     asg = assignments(partition)
     pops = dist_populations(partition)
     nodes = dist_nodes(partition)
-    # old district
+    # Old district.
     D₁ = asg[flipped_node]
     D₁_pop = pops[D₁] - node_pop
     D₁_n = setdiff(nodes[D₁], flipped_node)
-    # new district
+    # New district.
     D₂ = asg[other_node]
     D₂_pop = pops[D₂] + node_pop
     D₂_n = union(nodes[D₂], flipped_node)
@@ -148,14 +148,14 @@ function update_partition!(
         partition.parent = _copy_partition_fields(partition; parent=nothing)
     end
 
-    # update district population counts
+    # Update district population counts.
     partition.dist_populations[proposal.D₁] = proposal.D₁_pop
     partition.dist_populations[proposal.D₂] = proposal.D₂_pop
 
-    # relabel node with new district
+    # Relabel node with new district.
     partition.assignments[proposal.node] = proposal.D₂
 
-    # Replace (do not mutate shared CoW BitSets)
+    # Replace (do not mutate shared CoW BitSets).
     partition.dist_nodes[proposal.D₁] = proposal.D₁_nodes
     partition.dist_nodes[proposal.D₂] = proposal.D₂_nodes
 

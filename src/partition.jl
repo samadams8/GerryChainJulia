@@ -3,15 +3,15 @@ abstract type AbstractPartition end
 mutable struct Partition <: AbstractPartition
     num_dists::Int
     num_cut_edges::Int
-    assignments::Vector{Int}                  # of length(num_nodes)
-    dist_populations::Vector{Int}             # of length(num_districts)
-    cut_edges::Vector{Int}                    # of length(num_edges)
+    assignments::Vector{Int}  # Of length num_nodes.
+    dist_populations::Vector{Int}  # Of length num_districts.
+    cut_edges::Vector{Int}  # Of length num_edges.
     dist_adj::SparseMatrixCSC{Int,Int}
     dist_nodes::Vector{BitSet}
-    parent::Union{AbstractPartition,Nothing}   # optional parent partition
+    parent::Union{AbstractPartition,Nothing}  # Optional parent partition.
 end
 
-# --- AbstractPartition accessors (default concrete implementations) ---
+# AbstractPartition accessors (default concrete implementations).
 
 num_dists(p::Partition) = p.num_dists
 num_cut_edges(p::Partition) = p.num_cut_edges
@@ -39,7 +39,7 @@ function _copy_partition_fields(
         copy(p.dist_populations),
         copy(p.cut_edges),
         copy(p.dist_adj),
-        BitSet[p.dist_nodes[i] for i = 1:p.num_dists],  # share BitSets
+        BitSet[p.dist_nodes[i] for i = 1:p.num_dists],  # Share BitSets.
         parent,
     )
 end
@@ -113,18 +113,18 @@ function Partition(graph::BaseGraph, assignment_col::AbstractString)::Partition
     assignments = get_assignments(graph.attributes, assignment_col)
     num_districts = length(Set(assignments))
 
-    # get cut_edges, district_adjacencies
+    # Get cut_edges, district_adjacencies.
     dist_adj, cut_edges = get_district_adj_and_cut_edges(graph, assignments, num_districts)
     num_cut_edges = sum(cut_edges)
 
-    # get district populations
+    # Get district populations.
     dist_populations =
         get_district_populations(assignments, populations, graph.num_nodes, num_districts)
 
-    # get district_nodes
+    # Get district_nodes.
     dist_nodes = get_district_nodes(assignments, graph.num_nodes, num_districts)
 
-    # return Partition with no parent by default
+    # Return Partition with no parent by default.
     return Partition(
         num_districts,
         num_cut_edges,
@@ -160,7 +160,7 @@ function get_assignments(
         elseif raw_value isa String
             try
                 processed_assignments[i] = parse(Int, raw_value)
-            catch exception # if the String could not be read as an int
+            catch exception  # If the String could not be read as an int.
                 if !haskey(assignment_to_num, raw_value)
                     assignment_to_num[raw_value] = length(assignment_to_num) + 1
                 end
@@ -244,7 +244,7 @@ function get_district_adj_and_cut_edges(
         dst_assignment = assignments[dst(edge)]
 
         if src_assignment != dst_assignment
-            # look up the index for this edge
+            # Look up the index for this edge.
             index = graph.adj_matrix[src(edge), dst(edge)]
             cut_edges[index] = 1
 

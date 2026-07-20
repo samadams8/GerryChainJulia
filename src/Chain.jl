@@ -88,7 +88,7 @@ function Base.iterate(chain::MarkovChain{G,S}, progress = nothing) where {G,S}
     return chain.state, progress
 end
 
-# ── CouponCollectorChain ──────────────────────────────────────────────────────
+# CouponCollectorChain implementation.
 
 """
     coupon_collector_expectation(n::Int) -> Float64

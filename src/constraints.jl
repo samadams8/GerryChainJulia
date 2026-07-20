@@ -1,7 +1,8 @@
 """
     within_population_bounds(partition::AbstractPartition, min_pop::Int, max_pop::Int) -> Bool
 
-Returns `true` if all district populations in `partition` are between `min_pop` and `max_pop` (inclusive).
+Returns `true` if all district populations in `partition` are between `min_pop` and
+`max_pop` (inclusive).
 """
 function within_population_bounds(partition::AbstractPartition, min_pop::Int, max_pop::Int)::Bool
     pops = dist_populations(partition)
@@ -14,7 +15,8 @@ end
 """
     within_percent_of_ideal_population(graph::AbstractGraph, partition::AbstractPartition, tolerance::Float64=0.01) -> Bool
 
-Returns `true` if all district populations in `partition` are within `tolerance` percentage of ideal population.
+Returns `true` if all district populations in `partition` are within `tolerance`
+percentage of ideal population.
 """
 function within_percent_of_ideal_population(
     graph::AbstractGraph, partition::AbstractPartition, tolerance::Float64=0.01
@@ -28,7 +30,8 @@ end
 """
     population_constraint(tolerance::Float64=0.01) -> Function
 
-Returns a validator function `(graph, partition) -> Bool` for population balance within `tolerance`.
+Returns a validator function `(graph, partition) -> Bool` for population balance
+within `tolerance`.
 """
 function population_constraint(tolerance::Float64=0.01)
     return (graph, partition) -> within_percent_of_ideal_population(graph, partition, tolerance)

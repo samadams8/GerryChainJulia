@@ -78,14 +78,14 @@ function _ensure_subtree_cut_scratch!(scratch::SubtreeCutScratch, max_node::Int)
         scratch.seen = falses(max_node)
         scratch.max_node = max_node
     end
-    # Clear adjacency lists touched on the previous run
+    # Clear adjacency lists touched on the previous run.
     @inbounds for u in scratch.order
         empty!(scratch.adj[u])
     end
     empty!(scratch.order)
     empty!(scratch.stack)
     fill!(scratch.parent, 0)
-    # seen is reset only when collecting a component
+    # The `seen` bitvector is reset only when collecting a component.
     return scratch
 end
 
