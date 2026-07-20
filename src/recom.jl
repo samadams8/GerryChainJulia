@@ -545,3 +545,74 @@ function update_partition!(
 
     return update_partition_adjacency(partition, graph)
 end
+
+"""
+    ReComConfiguration{RNG<:AbstractRNG} <: AbstractProposalConfiguration
+
+Configuration for running a ReCom (Recombination) proposal.
+
+# Fields
+- `ideal_pop::Float64`: Target population for each district.
+- `pop_tolerance::Float64`: Allowed relative population deviation (e.g. `0.01` for ±1%).
+- `num_tries::Int`: MST-cut attempts per subgraph sample before resampling.
+- `rng::RNG`: Random number generator.
+- `tree_method::Symbol`: Spanning tree method (e.g. `:kruskal` or `:wilson`).
+- `n_parallel::Int`: Number of concurrent proposal attempts to spawn.
+- `cut_method::Symbol`: Method to find population-balanced cuts (e.g. `:subtree_population` or `:edge_scan`).
+- `buffers::Ref{Union{Nothing, PartitionBuffers}}`: Ref to reusable partition buffer for allocation-free updates.
+"""
+struct ReComConfiguration{RNG<:AbstractRNG} <: AbstractProposalConfiguration
+    ideal_pop::Float64
+    pop_tolerance::Float64
+    num_tries::Int
+    rng::RNG
+    tree_method::Symbol
+    n_parallel::Int
+    cut_method::Symbol
+    buffers::Ref{Union{Nothing, PartitionBuffers}}
+end
+
+function ReComConfiguration(
+    ideal_pop::Float64,
+    pop_tolerance::Float64;
+    num_tries::Int = 3,
+    rng::AbstractRNG = Random.default_rng(),
+    tree_method::Symbol = :kruskal,
+    n_parallel::Int = 1,
+    cut_method::Symbol = :subtree_population
+)
+    return ReComConfiguration(
+        ideal_pop,
+        pop_tolerance,
+        num_tries,
+        rng,
+        tree_method,
+        n_parallel,
+        cut_method,
+        Ref{Union{Nothing, PartitionBuffers}}(nothing)
+    )
+end
+
+function propose(
+    graph::AbstractGraph,
+    partition::Partition,
+    config::ReComConfiguration,
+)
+    # Compute min_pop and max_pop from ideal_pop and pop_tolerance
+    min_pop = Int(ceil((1.0 - config.pop_tolerance) * config.ideal_pop))
+    max_pop = Int(floor((1.0 + config.pop_tolerance) * config.ideal_pop))
+
+    opts = _RecomInternalOptions(
+        config.num_tries,
+        config.tree_method,
+        config.cut_method,
+        config.n_parallel
+    )
+    prop = get_valid_proposal(graph, partition, min_pop, max_pop, config.rng, opts)
+
+    if config.buffers[] === nothing
+        config.buffers[] = PartitionBuffers(partition)
+    end
+    p_next = clone_for_update(partition, config.buffers[])
+    return update_partition!(p_next, graph, prop)
+end

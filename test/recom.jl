@@ -24,15 +24,16 @@
     @testset "ReCom proposal generation with tolerance" begin
         partition = Partition(graph, "assignment")
 
-        # Test default tolerance 0.01 or custom tolerance
-        prop = recom_proposal(graph, partition; tolerance=0.1)
+        ideal_pop = total_pop(graph) / num_dists(partition)
+        config = ReComConfiguration(ideal_pop, 0.1; rng=MersenneTwister(42))
+        prop = propose(graph, partition, config)
         @test prop isa Partition
         @test num_dists(prop) == 4
 
         # Test MarkovChain integration
         mc = MarkovChain(
             graph,
-            (g, p) -> recom_proposal(g, p; tolerance=0.1),
+            config,
             [(g, p) -> within_percent_of_ideal_population(g, p, 0.1)],
             always_accept,
             partition,

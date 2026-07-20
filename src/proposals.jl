@@ -1,5 +1,21 @@
 abstract type AbstractProposal end
 
+"""
+    AbstractProposalConfiguration
+
+Abstract base type for all proposal configurations. Subclasses must implement
+`propose(graph::AbstractGraph, partition::Partition, config::YourConfig)`.
+"""
+abstract type AbstractProposalConfiguration end
+
+"""
+    propose(graph::AbstractGraph, partition::Partition, config::AbstractProposalConfiguration) -> Partition
+
+Apply the proposal configured by `config` on `partition` in the context of `graph`.
+Returns a new `Partition` instance (typically generated via `clone_for_update` and updated).
+"""
+function propose end
+
 struct RecomProposal <: AbstractProposal
     D₁::Int
     D₂::Int

@@ -161,3 +161,79 @@ function update_partition!(
 
     return update_partition_adjacency(partition, graph)
 end
+
+"""
+    PopulationFlipConfiguration{RNG<:AbstractRNG} <: AbstractProposalConfiguration
+
+Configuration for running a population-balancing boundary node flip proposal.
+
+# Fields
+- `ideal_pop::Float64`: Target population for each district.
+- `pop_key::String`: Population updater/attribute key (for compatibility).
+- `rng::RNG`: Random number generator.
+"""
+struct PopulationFlipConfiguration{RNG<:AbstractRNG} <: AbstractProposalConfiguration
+    ideal_pop::Float64
+    pop_key::String
+    rng::RNG
+end
+
+function PopulationFlipConfiguration(
+    ideal_pop::Float64,
+    pop_key::String = "population";
+    rng::AbstractRNG = Random.default_rng()
+)
+    return PopulationFlipConfiguration(ideal_pop, pop_key, rng)
+end
+
+function propose(
+    graph::AbstractGraph,
+    partition::Partition,
+    config::PopulationFlipConfiguration,
+)
+    cut = cut_edges(partition)
+    srcs = edge_src(graph)
+    dsts = edge_dst(graph)
+    asg = assignments(partition)
+    pops = dist_populations(partition)
+
+    candidate_edges = Tuple{Int,Int}[]
+    for i in 1:num_edges(graph)
+        if cut[i] == 1
+            u = srcs[i]
+            v = dsts[i]
+            D_u = asg[u]
+            D_v = asg[v]
+            pop_u = pops[D_u]
+            pop_v = pops[D_v]
+
+            balanced_u = abs(pop_u - config.ideal_pop) < 1.0
+            balanced_v = abs(pop_v - config.ideal_pop) < 1.0
+
+            if !(balanced_u && balanced_v)
+                push!(candidate_edges, (u, v))
+            end
+        end
+    end
+
+    if isempty(candidate_edges)
+        return partition
+    end
+
+    edge = rand(config.rng, candidate_edges)
+    index = rand(config.rng, (0, 1))
+    flipped_node, other_node = edge[index + 1], edge[2 - index]
+
+    node_pop = populations(graph)[flipped_node]
+    D₁ = asg[flipped_node]
+    D₁_pop = pops[D₁] - node_pop
+    D₁_n = setdiff(dist_nodes(partition)[D₁], flipped_node)
+
+    D₂ = asg[other_node]
+    D₂_pop = pops[D₂] + node_pop
+    D₂_n = union(dist_nodes(partition)[D₂], flipped_node)
+
+    prop = FlipProposal(flipped_node, D₁, D₂, D₁_pop, D₂_pop, D₁_n, D₂_n)
+    p_next = clone_for_update(partition)
+    return update_partition!(p_next, graph, prop)
+end

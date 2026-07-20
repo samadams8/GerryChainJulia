@@ -52,6 +52,10 @@ export
     FlipProposal,
     recom_proposal,
     flip_proposal,
+    AbstractProposalConfiguration,
+    ReComConfiguration,
+    PopulationFlipConfiguration,
+    propose,
 
     # Constraints.
     within_population_bounds,

@@ -12,14 +12,16 @@
         @test flip_prop.D₂ in neighbor_districts
     end
 
-    @testset "Flip proposal generation with tolerance" begin
-        prop = flip_proposal(graph, partition; tolerance=0.5)
+    @testset "PopulationFlip proposal generation" begin
+        ideal_pop = total_pop(graph) / num_dists(partition)
+        config = PopulationFlipConfiguration(ideal_pop, "population"; rng=MersenneTwister(42))
+        prop = propose(graph, partition, config)
         @test prop isa Partition
         @test num_dists(prop) == 4
 
         mc = MarkovChain(
             graph,
-            (g, p) -> flip_proposal(g, p; tolerance=0.5),
+            config,
             [(g, p) -> true],
             always_accept,
             partition,

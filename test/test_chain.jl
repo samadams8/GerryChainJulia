@@ -34,8 +34,9 @@
         2, 1, assignments, dist_pops, cut_edges, dist_adj, dist_nodes, nothing
     )
 
-    # Dummy proposal that returns the state unchanged
-    dummy_proposal = (g, p) -> p
+    struct DummyProposalConfig <: AbstractProposalConfiguration end
+    GerryChain.propose(g, p, ::DummyProposalConfig) = p
+    dummy_config = DummyProposalConfig()
 
     # Always accept function: accept(graph, current_state, candidate) -> 1.0
     always_accept_fn = (g, curr, cand) -> 1.0
@@ -46,7 +47,7 @@
     @testset "MarkovChain basic iteration" begin
         mc = MarkovChain(
             graph,
-            dummy_proposal,
+            dummy_config,
             [true_constraint],
             always_accept_fn,
             initial_partition,
@@ -68,7 +69,7 @@
         false_constraint = (g, p) -> false
         mc_fail = MarkovChain(
             graph,
-            dummy_proposal,
+            dummy_config,
             [false_constraint],
             always_accept_fn,
             initial_partition,
@@ -85,7 +86,7 @@
 
         ccc = CouponCollectorChain(
             graph,
-            dummy_proposal,
+            dummy_config,
             [true_constraint],
             always_accept_fn,
             initial_partition,

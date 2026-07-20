@@ -8,7 +8,7 @@ and accept functions. Follows the standard Julia iterator protocol.
 
 # Fields
 - `graph`           – the underlying graph (e.g. `GerryChain.BaseGraph`)
-- `proposal`        – `(graph, Partition) -> Partition`; generates next candidate state
+- `proposal_config` – `AbstractProposalConfiguration` object specifying the proposal strategy
 - `constraints`     – `Vector{Function}`, each `(graph, Partition) -> Bool`
 - `accept`          – `(graph, current_state, candidate) -> Float64` or `Bool`
 - `state`           – current `GerryChain.Partition` of type `S`
@@ -19,7 +19,7 @@ and accept functions. Follows the standard Julia iterator protocol.
 """
 mutable struct MarkovChain{G,S,P,C,A} <: AbstractChain
     graph::G
-    proposal::P
+    proposal_config::P
     constraints::C
     accept::A
     state::S
@@ -31,7 +31,7 @@ end
 
 function MarkovChain(
     graph::G,
-    proposal::P,
+    proposal_config::P,
     constraints::C,
     accept::A,
     initial_state::S,
@@ -42,7 +42,7 @@ function MarkovChain(
     c = constraints isa AbstractVector ? constraints : [constraints]
     return MarkovChain(
         graph,
-        proposal,
+        proposal_config,
         c,
         accept,
         initial_state,
@@ -66,7 +66,7 @@ function Base.iterate(chain::MarkovChain{G,S}, progress = nothing) where {G,S}
     local candidate::S
     attempts = 0
     while true
-        candidate = chain.proposal(chain.graph, chain.state)::S
+        candidate = propose(chain.graph, chain.state, chain.proposal_config)::S
         all(c(chain.graph, candidate) for c in chain.constraints) && break
         attempts += 1
         if chain.max_constraint_attempts > 0 && attempts >= chain.max_constraint_attempts
@@ -113,7 +113,7 @@ end
 
 function CouponCollectorChain(
     graph,
-    proposal,
+    proposal_config,
     constraints,
     accept,
     initial_state::S,
@@ -124,7 +124,7 @@ function CouponCollectorChain(
 ) where {S}
     inner = MarkovChain(
         graph,
-        proposal,
+        proposal_config,
         constraints,
         accept,
         initial_state,
