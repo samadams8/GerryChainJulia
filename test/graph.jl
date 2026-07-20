@@ -198,6 +198,25 @@ using DataStructures
         @test muni_ids[2] == UInt32(0)
         @test muni_ids[3] == UInt32(0)
         @test muni_ids[5] == UInt32(0)
+
+        # configure_mst_weights! tests
+        configure_mst_weights!(graph; region_surcharges=Dict("county" => 10.0))
+        # Ensure base weights cache exists
+        @test graph._mst_base_weights[] !== nothing
+        # Test that cross-boundary edges in "county" get surcharge, in-boundary do not
+        for e = 1:num_edges(graph)
+            u, v = srcs[e], dsts[e]
+            expected = edge_penalties(graph)[e]
+            if region_ids(graph, "county")[u] != region_ids(graph, "county")[v]
+                expected += 10.0
+            end
+            @test graph._mst_base_weights[][e] == expected
+        end
+
+        # Test invalidation of cache on set_edge_penalty!
+        set_edge_penalty!(graph, 1, 2, 99.0)
+        @test graph._mst_base_weights[] === nothing
+
         @test muni_ids[1] == muni_ids[4]
         @test muni_ids[1] != UInt32(0)
         @test muni_ids[1] != muni_ids[6]

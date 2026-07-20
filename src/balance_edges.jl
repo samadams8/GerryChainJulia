@@ -150,57 +150,74 @@ function kruskal_mst!(
     return BitSet(scratch.mst_edges)
 end
 
+"""
+    kruskal_mst(graph::AbstractGraph,
+                edges::Vector{Int},
+                nodes::Vector{Int},
+                weights::AbstractVector{<:Real})::BitSet
+
+Build a Minimum Spanning Tree using Kruskal's algorithm and user-provided custom weights.
+Allocates temporary scratch buffers.
+"""
 function kruskal_mst(
     graph::AbstractGraph,
     edges::Vector{Int},
     nodes::Vector{Int},
-    weights::Vector{Float64},
+    weights::AbstractVector{<:Real},
 )::BitSet
     scratch = MSTScratch(length(edges), isempty(nodes) ? 0 : maximum(nodes))
-    return kruskal_mst!(scratch, graph, edges, nodes, weights)
+    return kruskal_mst!(scratch, graph, edges, nodes, Float64.(weights))
 end
 
+"""
+    build_mst_weights!(weights::Vector{Float64},
+                       graph::BaseGraph,
+                       edges::Vector{Int},
+                       rng::AbstractRNG)
+
+Populate `weights` with random weights plus any pre-configured base weights
+(surcharges and penalties) from the graph.
+"""
 function build_mst_weights!(
     weights::Vector{Float64},
-    graph::AbstractGraph,
+    graph::BaseGraph,
     edges::Vector{Int},
-    rng::AbstractRNG;
-    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    rng::AbstractRNG,
 )
     length(weights) >= length(edges) || throw(
         ArgumentError("weights length must be at least edges length"),
     )
-    penalties = edge_penalties(graph)
-    srcs = edge_src(graph)
-    dsts = edge_dst(graph)
-    surcharge_cols = collect(keys(region_surcharges))
-    surcharge_vals = [region_surcharges[c] for c in surcharge_cols]
-    region_vecs = [region_ids(graph, c) for c in surcharge_cols]
-
-    @inbounds for i = 1:length(edges)
-        e = edges[i]
-        w = rand(rng) + penalties[e]
-        u = srcs[e]
-        v = dsts[e]
-        for j = 1:length(surcharge_cols)
-            id_u = region_vecs[j][u]
-            id_v = region_vecs[j][v]
-            # _NULL_REGION_ID = no region; only surcharge real cross-region edges
-            if id_u != _NULL_REGION_ID && id_v != _NULL_REGION_ID && id_u != id_v
-                w += surcharge_vals[j]
-            end
+    base = graph._mst_base_weights[]
+    # Splitting the loop based on whether base is nothing ensures type stability
+    # by avoiding Union-splitting inside the hot loop.
+    if base === nothing
+        penalties = edge_penalties(graph)
+        @inbounds for i = 1:length(edges)
+            e = edges[i]
+            weights[i] = rand(rng) + penalties[e]
         end
-        weights[i] = w
+    else
+        @inbounds for i = 1:length(edges)
+            e = edges[i]
+            weights[i] = rand(rng) + base[e]
+        end
     end
     return weights
 end
 
+"""
+    build_mst_weights!(scratch::MSTScratch,
+                       graph::BaseGraph,
+                       edges::Vector{Int},
+                       rng::AbstractRNG)
+
+Populate `scratch.weights` using scratch buffers.
+"""
 function build_mst_weights!(
     scratch::MSTScratch,
-    graph::AbstractGraph,
+    graph::BaseGraph,
     edges::Vector{Int},
-    rng::AbstractRNG;
-    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    rng::AbstractRNG,
 )
     max_n = 0
     srcs, dsts = edge_src(graph), edge_dst(graph)
@@ -212,49 +229,37 @@ function build_mst_weights!(
         scratch.weights,
         graph,
         edges,
-        rng;
-        region_surcharges = region_surcharges,
+        rng,
     )
 end
 
-function weighted_kruskal_mst(
-    graph::AbstractGraph,
+"""
+    _kruskal_mst(graph::BaseGraph,
+                 edges::Vector{Int},
+                 nodes::Vector{Int},
+                 rng::AbstractRNG;
+                 scratch=nothing)
+
+Internal Kruskal spanning tree implementation. Reads cached edge penalties
+and region surcharges from `graph`. Fallback is uniform random if unconfigured.
+"""
+function _kruskal_mst(
+    graph::BaseGraph,
     edges::Vector{Int},
     nodes::Vector{Int},
     rng::AbstractRNG = Random.default_rng();
-    region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
+    scratch::Union{MSTScratch,Nothing} = nothing,
 )::BitSet
-    scratch = MSTScratch(length(edges), isempty(nodes) ? 0 : maximum(nodes))
+    max_node = isempty(nodes) ? 0 : maximum(nodes)
+    if scratch === nothing
+        scratch = MSTScratch(length(edges), max_node)
+    end
     build_mst_weights!(
         scratch,
         graph,
         edges,
-        rng;
-        region_surcharges = region_surcharges,
+        rng,
     )
-    return kruskal_mst!(scratch, graph, edges, nodes, scratch.weights)
-end
-
-function weighted_kruskal_mst(
-    graph::AbstractGraph,
-    edges::Vector{Int},
-    nodes::Vector{Int},
-    weights::AbstractVector{<:Real},
-)::BitSet
-    return kruskal_mst(graph, edges, nodes, Float64.(weights))
-end
-
-function random_kruskal_mst(
-    graph::AbstractGraph,
-    edges::Vector{Int},
-    nodes::Vector{Int},
-    rng::AbstractRNG = Random.default_rng(),
-)::BitSet
-    scratch = MSTScratch(length(edges), isempty(nodes) ? 0 : maximum(nodes))
-    n = length(edges)
-    @inbounds for i = 1:n
-        scratch.weights[i] = rand(rng)
-    end
     return kruskal_mst!(scratch, graph, edges, nodes, scratch.weights)
 end
 

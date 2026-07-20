@@ -14,6 +14,7 @@ struct BaseGraph <: AbstractGraph
     edge_penalties::Vector{Float64}       # of length(num_edges); index = edge id
     region_cols::Dict{String,Vector{UInt32}}  # dense region id columns
     _attr_cache::Dict{String,Vector{Float64}}  # lazy dense attribute columns
+    _mst_base_weights::Base.RefValue{Union{Vector{Float64},Nothing}}
 end
 
 """
@@ -54,6 +55,7 @@ function BaseGraph(
         zeros(Float64, num_edges),
         Dict{String,Vector{UInt32}}(),
         Dict{String,Vector{Float64}}(),
+        Base.RefValue{Union{Vector{Float64},Nothing}}(nothing),
     )
 end
 
@@ -237,6 +239,7 @@ function graph_from_shp(
         zeros(Float64, n_edges),
         region_cols,
         Dict{String,Vector{Float64}}(),
+        Base.RefValue{Union{Vector{Float64},Nothing}}(nothing),
     )
 end
 
@@ -360,6 +363,7 @@ function graph_from_json(
         zeros(Float64, num_edges),
         region_cols,
         Dict{String,Vector{Float64}}(),
+        Base.RefValue{Union{Vector{Float64},Nothing}}(nothing),
     )
 end
 
@@ -544,6 +548,7 @@ function add_region_column!(g::BaseGraph, name::AbstractString, values)
     else
         g.region_cols[String(name)] = encode_region_values(values)
     end
+    g._mst_base_weights[] = nothing
     return g
 end
 
@@ -556,6 +561,7 @@ function set_edge_penalty!(g::BaseGraph, u::Int, v::Int, w::Float64)
     edge_id = g.adj_matrix[u, v]
     edge_id == 0 && throw(ArgumentError("No edge between nodes $u and $v."))
     g.edge_penalties[edge_id] = w
+    g._mst_base_weights[] = nothing
     return g
 end
 
@@ -584,7 +590,67 @@ function set_edge_penalties_from_pairs!(g::BaseGraph, penalties::AbstractVector{
     for i = 1:g.num_edges
         g.edge_penalties[i] = Float64(penalties[i])
     end
+    g._mst_base_weights[] = nothing
     return g
+end
+
+# --- Unified MST weights configuration ---
+
+"""
+    configure_mst_weights!(graph::BaseGraph;
+                           edge_penalties=nothing,
+                           region_surcharges=Dict{String,Float64}())
+
+Configure the deterministic component of MST edge weights and cache them
+on the graph. The random jitter `rand(rng)` is added at tree-build time.
+
+- `edge_penalties`: a vector of length `num_edges` or a `Dict{(u,v) => w}` or nothing.
+  If omitted/nothing, the graph's current `edge_penalties` are used.
+- `region_surcharges`: `Dict{String,Float64}` mapping region column name to
+  surcharge added when an edge crosses a boundary in that column.
+"""
+function configure_mst_weights!(
+    graph::BaseGraph;
+    edge_penalties=nothing,
+    region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
+)
+    if edge_penalties !== nothing
+        set_edge_penalties_from_pairs!(graph, edge_penalties)
+    end
+    graph._mst_base_weights[] = _compute_mst_base_weights(graph, region_surcharges)
+    return graph
+end
+
+"""
+    _compute_mst_base_weights(graph::BaseGraph,
+                              region_surcharges::Dict{String,Float64})::Vector{Float64}
+
+Internal helper to precompute the deterministic part of the MST weights (penalties + surcharges)
+across all edges of the graph.
+"""
+function _compute_mst_base_weights(
+    graph::BaseGraph,
+    region_surcharges::Dict{String,Float64},
+)::Vector{Float64}
+    penalties = edge_penalties(graph)
+    base = copy(penalties)
+    surcharge_cols = collect(keys(region_surcharges))
+    if isempty(surcharge_cols)
+        return base
+    end
+    srcs, dsts = edge_src(graph), edge_dst(graph)
+    surcharge_vals = Float64[region_surcharges[c] for c in surcharge_cols]
+    region_vecs = Vector{UInt32}[region_ids(graph, c) for c in surcharge_cols]
+    @inbounds for e in 1:num_edges(graph)
+        u, v = srcs[e], dsts[e]
+        for j in 1:length(surcharge_cols)
+            id_u, id_v = region_vecs[j][u], region_vecs[j][v]
+            if id_u != _NULL_REGION_ID && id_v != _NULL_REGION_ID && id_u != id_v
+                base[e] += surcharge_vals[j]
+            end
+        end
+    end
+    return base
 end
 
 # --- Lazy Float64 attribute column cache ---

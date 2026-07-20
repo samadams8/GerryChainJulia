@@ -56,8 +56,7 @@ export BaseGraph,
     set_attributes!,
 
     # balance edges
-    random_kruskal_mst,
-    weighted_kruskal_mst,
+    configure_mst_weights!,
     build_mst_weights!,
     wilson_ust,
     MSTScratch,

@@ -315,35 +315,15 @@ function _spanning_tree(
     nodes::Vector{Int},
     rng::AbstractRNG;
     tree_method::Symbol=:kruskal,
-    region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
     scratch::Union{MSTScratch,Nothing}=nothing,
 )::BitSet
     if tree_method === :wilson
         return wilson_ust(graph, edges, nodes, rng)
-    elseif tree_method !== :kruskal
+    elseif tree_method === :kruskal
+        return _kruskal_mst(graph, edges, nodes, rng; scratch=scratch)
+    else
         throw(ArgumentError("tree_method must be :kruskal or :wilson, got $(tree_method)"))
     end
-
-    use_weighted = !isempty(region_surcharges) || any(!iszero, edge_penalties(graph))
-    if scratch === nothing
-        return if use_weighted
-            weighted_kruskal_mst(
-                graph, edges, nodes, rng; region_surcharges=region_surcharges
-            )
-        else
-            random_kruskal_mst(graph, edges, nodes, rng)
-        end
-    end
-
-    if use_weighted
-        build_mst_weights!(scratch, graph, edges, rng; region_surcharges=region_surcharges)
-    else
-        _ensure_mst_scratch!(scratch, length(edges), isempty(nodes) ? 0 : maximum(nodes))
-        @inbounds for i in 1:length(edges)
-            scratch.weights[i] = rand(rng)
-        end
-    end
-    return kruskal_mst!(scratch, graph, edges, nodes, scratch.weights)
 end
 
 """
@@ -354,7 +334,6 @@ Internal options struct to consolidate keyword arguments for proposal generation
 struct _RecomInternalOptions
     num_tries::Int
     tree_method::Symbol
-    region_surcharges::Dict{String,Float64}
     cut_method::Symbol
     n_parallel::Int
 end
@@ -385,7 +364,6 @@ function _try_valid_proposal(
             sg_node_list,
             rng;
             tree_method=opts.tree_method,
-            region_surcharges=opts.region_surcharges,
             scratch=scratch,
         )
         proposal = if opts.cut_method === :subtree_population
@@ -415,6 +393,12 @@ function _try_valid_proposal(
     return nothing
 end
 
+"""
+    _first_valid_proposal(results)
+
+Walk the list of task results and return the first one that is a `RecomProposal` (valid proposal).
+Because parallel tasks are sorted by index, this resolves tie-breakers in favor of the lowest index task.
+"""
 function _first_valid_proposal(results)
     for res in results
         res isa RecomProposal && return res
@@ -495,7 +479,6 @@ end
                        pop_constraint::PopulationConstraint,
                        rng::AbstractRNG,
                        num_tries::Int=3;
-                       region_surcharges=Dict{String,Float64}(),
                        tree_method::Symbol=:kruskal,
                        n_parallel::Int=1,
                        cut_method::Symbol=:subtree_population)
@@ -511,9 +494,6 @@ end
     - rng:            A random number generator that implements the
                       [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
                       (e.g. `Random.default_rng()` or `MersenneTwister(1234)`)
-    - region_surcharges: Optional per-region-column surcharges added to MST
-                      weights when an edge crosses a region boundary
-                      (Kruskal only; ignored for `:wilson`)
     - tree_method:    `:kruskal` (default) or `:wilson` (uniform spanning tree)
     - n_parallel:     number of concurrent proposal attempts (`1` = serial).
                       With `n_parallel > 1`, tasks use independent RNGs; the
@@ -527,13 +507,12 @@ function get_valid_proposal(
     pop_constraint::PopulationConstraint,
     rng::AbstractRNG,
     num_tries::Int=3;
-    region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
     tree_method::Symbol=:kruskal,
     n_parallel::Int=1,
     cut_method::Symbol=:subtree_population,
 )
     opts = _RecomInternalOptions(
-        num_tries, tree_method, region_surcharges, cut_method, n_parallel
+        num_tries, tree_method, cut_method, n_parallel
     )
     return get_valid_proposal(graph, partition, pop_constraint, rng, opts)
 end
@@ -708,13 +687,12 @@ function recom_chain_iter(
     rng::AbstractRNG=Random.default_rng(),
     no_self_loops::Bool=false,
     progress_bar::Bool=true,
-    region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
     tree_method::Symbol=:kruskal,
     n_parallel::Int=1,
     cut_method::Symbol=:subtree_population,
 ) where {F<:Function,S<:AbstractScore}
     opts = _RecomInternalOptions(
-        num_tries, tree_method, region_surcharges, cut_method, n_parallel
+        num_tries, tree_method, cut_method, n_parallel
     )
     iter = RecomChainIter(
         graph,
@@ -767,7 +745,6 @@ function recom_chain(
     rng::AbstractRNG=Random.default_rng(),
     no_self_loops::Bool=false,
     progress_bar::Bool=true,
-    region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
     tree_method::Symbol=:kruskal,
     n_parallel::Int=1,
     cut_method::Symbol=:subtree_population,
@@ -786,7 +763,6 @@ function recom_chain(
         rng=rng,
         no_self_loops=no_self_loops,
         progress_bar=progress_bar,
-        region_surcharges=region_surcharges,
         tree_method=tree_method,
         n_parallel=n_parallel,
         cut_method=cut_method,

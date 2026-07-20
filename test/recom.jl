@@ -88,6 +88,7 @@
 
     @testset "region-aware recom_chain kwargs" begin
         graph = BaseGraph(square_grid_filepath, "population"; region_columns=["assignment"])
+        configure_mst_weights!(graph; region_surcharges=Dict("assignment" => 0.5))
         partition = Partition(graph, "assignment")
         pop_constraint = PopulationConstraint(graph, partition, 10.0)
         scores = [DistrictAggregate("purple")]
@@ -97,7 +98,6 @@
             pop_constraint,
             1,
             scores;
-            region_surcharges=Dict("assignment" => 0.5),
             progress_bar=false,
         )
         @test length(chain_data.step_values) == 2  # initial + 1 step
@@ -179,7 +179,7 @@
         pop_constraint = PopulationConstraint(graph, partition, 10.0)
 
         D₁, D₂, sg_edges, sg_nodes = sample_subgraph(graph, partition, MersenneTwister(42))
-        mst_edges = random_kruskal_mst(
+        mst_edges = GerryChain._kruskal_mst(
             graph, sg_edges, collect(sg_nodes), MersenneTwister(7)
         )
 
@@ -277,7 +277,7 @@
             @test reused2 isa DummyProposal
         end
 
-        mst2 = random_kruskal_mst(graph, sg_edges, collect(sg_nodes), MersenneTwister(99))
+        mst2 = GerryChain._kruskal_mst(graph, sg_edges, collect(sg_nodes), MersenneTwister(99))
         other = get_balanced_proposal_subtree_population(
             graph, mst2, sg_nodes, partition, pop_constraint, D₁, D₂; scratch=cut_scratch
         )
