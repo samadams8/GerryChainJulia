@@ -3,6 +3,8 @@
 
 Reusable buffers for Kruskal / weighted MST construction.
 """
+const _NULL_REGION_ID = UInt32(0)
+
 mutable struct MSTScratch
     weights::Vector{Float64}
     idx::Vector{Int}
@@ -117,8 +119,8 @@ In-place Kruskal using `scratch` buffers. `weights[1:length(edges)]` are used.
 function kruskal_mst!(
     scratch::MSTScratch,
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
     weights::AbstractVector{Float64},
 )::BitSet
     n_edges = length(edges)
@@ -150,9 +152,9 @@ end
 
 function kruskal_mst(
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
-    weights::Array{Float64,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
+    weights::Vector{Float64},
 )::BitSet
     scratch = MSTScratch(length(edges), isempty(nodes) ? 0 : maximum(nodes))
     return kruskal_mst!(scratch, graph, edges, nodes, weights)
@@ -161,7 +163,7 @@ end
 function build_mst_weights!(
     weights::Vector{Float64},
     graph::AbstractGraph,
-    edges::Array{Int,1},
+    edges::Vector{Int},
     rng::AbstractRNG;
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
 )
@@ -183,8 +185,8 @@ function build_mst_weights!(
         for j = 1:length(surcharge_cols)
             id_u = region_vecs[j][u]
             id_v = region_vecs[j][v]
-            # UInt32(0) = no region; only surcharge real cross-region edges
-            if id_u != UInt32(0) && id_v != UInt32(0) && id_u != id_v
+            # _NULL_REGION_ID = no region; only surcharge real cross-region edges
+            if id_u != _NULL_REGION_ID && id_v != _NULL_REGION_ID && id_u != id_v
                 w += surcharge_vals[j]
             end
         end
@@ -196,7 +198,7 @@ end
 function build_mst_weights!(
     scratch::MSTScratch,
     graph::AbstractGraph,
-    edges::Array{Int,1},
+    edges::Vector{Int},
     rng::AbstractRNG;
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
 )
@@ -217,8 +219,8 @@ end
 
 function weighted_kruskal_mst(
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
     rng::AbstractRNG = Random.default_rng();
     region_surcharges::Dict{String,Float64} = Dict{String,Float64}(),
 )::BitSet
@@ -235,8 +237,8 @@ end
 
 function weighted_kruskal_mst(
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
     weights::AbstractVector{<:Real},
 )::BitSet
     return kruskal_mst(graph, edges, nodes, Float64.(weights))
@@ -244,13 +246,12 @@ end
 
 function random_kruskal_mst(
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
     rng::AbstractRNG = Random.default_rng(),
 )::BitSet
     scratch = MSTScratch(length(edges), isempty(nodes) ? 0 : maximum(nodes))
     n = length(edges)
-    _ensure_mst_scratch!(scratch, n, isempty(nodes) ? 0 : maximum(nodes))
     @inbounds for i = 1:n
         scratch.weights[i] = rand(rng)
     end
@@ -264,8 +265,8 @@ Wilson's algorithm: uniform random spanning tree on the induced subgraph.
 """
 function wilson_ust(
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
     rng::AbstractRNG = Random.default_rng(),
 )::BitSet
     length(nodes) <= 1 && return BitSet()

@@ -20,5 +20,5 @@ struct FlipProposal <: AbstractProposal
 end
 
 struct DummyProposal <: AbstractProposal
-    reason::AbstractString
+    reason::String
 end

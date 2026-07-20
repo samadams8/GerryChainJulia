@@ -311,8 +311,8 @@ random or weighted Kruskal.
 """
 function _spanning_tree(
     graph::AbstractGraph,
-    edges::Array{Int,1},
-    nodes::Array{Int,1},
+    edges::Vector{Int},
+    nodes::Vector{Int},
     rng::AbstractRNG;
     tree_method::Symbol=:kruskal,
     region_surcharges::Dict{String,Float64}=Dict{String,Float64}(),
@@ -415,6 +415,13 @@ function _try_valid_proposal(
     return nothing
 end
 
+function _first_valid_proposal(results)
+    for res in results
+        res isa RecomProposal && return res
+    end
+    return nothing
+end
+
 """
     get_valid_proposal(graph::AbstractGraph,
                        partition::AbstractPartition,
@@ -477,14 +484,7 @@ function get_valid_proposal(
             end
         end
         results = fetch.(tasks)
-        best = nothing
-        best_idx = typemax(Int)
-        for (i, result) in enumerate(results)
-            if result isa RecomProposal && i < best_idx
-                best = result
-                best_idx = i
-            end
-        end
+        best = _first_valid_proposal(results)
         best !== nothing && return best
     end
 end
@@ -754,32 +754,7 @@ Runs a Markov Chain for `num_steps` steps using ReCom. Returns a `ChainScoreData
 object which can be queried to retrieve the values of every score at each
 step of the chain.
 
-*Arguments:*
-- graph:            `AbstractGraph`
-- partition:        `AbstractPartition` with the plan information
-- pop_constraint:   `PopulationConstraint`
-- num_steps:        Number of steps to run the chain for
-- scores:           Array of `AbstractScore`s to capture at each step
-- num_tries:        num times to try getting a balanced cut from a subgraph
-                    before giving up
-- acceptance_fn:    A function generating a probability in [0, 1]
-                    representing the likelihood of accepting the
-                    proposal. Should accept a `Partition` as input.
-- rng:              Random number generator. The user can pass in their
-                    own; otherwise, we use the default RNG from Random. Must
-                    implement the [AbstractRNG type](https://docs.julialang.org/en/v1/stdlib/Random/#Random.AbstractRNG)
-                    (e.g. `Random.default_rng()` or `MersenneTwister(1234)`).
-- no\\_self\\_loops: If this is true, then a failure to accept a new state
-                    is not considered a self-loop; rather, the chain
-                    simply generates new proposals until the acceptance
-                    function is satisfied. BEWARE - this can create
-                    infinite loops if the acceptance function is never
-                    satisfied!
-- region_surcharges: Optional region-boundary MST surcharges (Kruskal only)
-- tree_method:      `:kruskal` or `:wilson`
-- n_parallel:       concurrent proposal attempts per step (default `1`)
-- cut_method:       `:subtree_population` (default) or `:edge_scan`
-- progress_bar      If this is true, a progress bar will be printed to stdout.
+See [`recom_chain_iter`](@ref) for details on arguments.
 """
 function recom_chain(
     graph::AbstractGraph,
