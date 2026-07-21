@@ -4,7 +4,6 @@ using LibSpatialIndex: LibSpatialIndex
 using Test
 using LightGraphs
 using JSON
-using HDF5
 using Logging
 using SparseArrays
 using Random

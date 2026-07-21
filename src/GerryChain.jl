@@ -1,13 +1,11 @@
 module GerryChain
 
 using JSON
-using HDF5
 using SparseArrays
 using LightGraphs
 using Random
 using DataStructures
 using Statistics
-using DelimitedFiles
 using ProgressBars
 using Shapefile: Shapefile
 using LibGEOS: LibGEOS
@@ -39,6 +37,7 @@ export
     cut_edges,
     dist_adj,
     dist_nodes,
+    configure_mst_weights!,
     set_edge_penalty!,
     add_region_column!,
     attribute_vector,

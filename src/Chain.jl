@@ -57,7 +57,8 @@ Base.eltype(::Type{<:MarkovChain{G,S}}) where {G,S} = S
 
 function Base.iterate(chain::MarkovChain{G,S}, progress = nothing) where {G,S}
     if chain.step == 0 && chain.show_progress
-        progress = Progress(chain.total_steps; desc = "Chain: ")
+        progress = ProgressBar(1:chain.total_steps)
+        set_description(progress, "Chain: ")
     end
 
     chain.step >= chain.total_steps && return nothing
@@ -81,7 +82,7 @@ function Base.iterate(chain::MarkovChain{G,S}, progress = nothing) where {G,S}
     end
 
     chain.step += 1
-    chain.show_progress && next!(progress)
+    chain.show_progress && update(progress)
     return chain.state, progress
 end
 
@@ -137,7 +138,8 @@ Base.eltype(::Type{<:CouponCollectorChain{G,S}}) where {G,S} = S
 
 function Base.iterate(c::CouponCollectorChain{G,S}, progress = nothing) where {G,S}
     if c.macro_step == 0 && c.show_progress
-        progress = Progress(c.num_macro_steps; desc = "CouponCollector: ")
+        progress = ProgressBar(1:c.num_macro_steps)
+        set_description(progress, "CouponCollector: ")
     end
 
     c.macro_step >= c.num_macro_steps && return nothing
@@ -150,6 +152,6 @@ function Base.iterate(c::CouponCollectorChain{G,S}, progress = nothing) where {G
     end
 
     c.macro_step += 1
-    c.show_progress && next!(progress)
+    c.show_progress && update(progress)
     return state, progress
 end
