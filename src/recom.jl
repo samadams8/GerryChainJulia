@@ -157,13 +157,13 @@ function get_balanced_proposal(
 
         if population₁ >= min_pop && population₁ <= max_pop && population₂ >= min_pop && population₂ <= max_pop
             component₂ = setdiff(mst_nodes, component₁)
-            proposal = RecomProposal(
+            proposal = RecomPayload(
                 D₁, D₂, population₁, population₂, component₁, component₂
             )
             return proposal
         end
     end
-    return DummyProposal("Could not find balanced cut.")
+    return nothing
 end
 
 """
@@ -261,10 +261,10 @@ function get_balanced_proposal_subtree_population(
         if population₁ >= min_pop && population₁ <= max_pop && population₂ >= min_pop && population₂ <= max_pop
             component₁ = _collect_component_dense!(scratch, u, v)
             component₂ = setdiff(mst_nodes, component₁)
-            return RecomProposal(D₁, D₂, population₁, population₂, component₁, component₂)
+            return RecomPayload(D₁, D₂, population₁, population₂, component₁, component₂)
         end
     end
-    return DummyProposal("Could not find balanced cut.")
+    return nothing
 end
 
 """Collect nodes reachable from `start` without crossing to `avoid`, using scratch buffers."""
@@ -378,7 +378,7 @@ function _try_valid_proposal(
                 ),
             )
         end
-        if proposal isa RecomProposal
+        if proposal isa RecomPayload
             return proposal
         end
     end
@@ -388,12 +388,12 @@ end
 """
     _first_valid_proposal(results)
 
-Walk the list of task results and return the first one that is a `RecomProposal` (valid proposal).
+Walk the list of task results and return the first one that is a `RecomPayload` (valid proposal).
 Because parallel tasks are sorted by index, this resolves tie-breakers in favor of the lowest index task.
 """
 function _first_valid_proposal(results)
     for res in results
-        res isa RecomProposal && return res
+        res isa RecomPayload && return res
     end
     return nothing
 end
@@ -460,60 +460,12 @@ function get_valid_proposal(
 end
 
 """
-    get_valid_recom_proposal(graph, partition, [rng], [num_tries]; tolerance=0.01,
-                             tree_method=:kruskal, n_parallel=1,
-                             cut_method=:subtree_population) -> RecomProposal
-
-Returns a population-balanced ReCom proposal within `tolerance` (default 0.01,
-meaning each new district must be within ±1% of ideal population).
-
-- `num_tries`: MST samples per subgraph before resampling a new subgraph.
-- `tree_method`: `:kruskal` (default) or `:wilson` for uniform spanning trees.
-- `n_parallel`: number of concurrent proposal attempts (`1` = serial).
-- `cut_method`: `:subtree_population` (default, O(N)) or `:edge_scan`.
-"""
-function get_valid_recom_proposal(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    rng::AbstractRNG=Random.default_rng(),
-    num_tries::Int=3;
-    tolerance::Float64=0.01,
-    tree_method::Symbol=:kruskal,
-    n_parallel::Int=1,
-    cut_method::Symbol=:subtree_population,
-)
-    ideal_pop = total_pop(graph) / num_dists(partition)
-    min_pop = Int(ceil((1 - tolerance) * ideal_pop))
-    max_pop = Int(floor((1 + tolerance) * ideal_pop))
-    opts = _RecomInternalOptions(num_tries, tree_method, cut_method, n_parallel)
-    return get_valid_proposal(graph, partition, min_pop, max_pop, rng, opts)
-end
-
-"""
-    recom_proposal(graph, partition; tolerance=0.01, rng=Random.default_rng()) -> Partition
-
-High-level ReCom proposal function. Generates a population-balanced `RecomProposal`
-and returns a new `Partition` with the proposal applied.
-Intended for use as the `proposal` argument to `MarkovChain`.
-"""
-function recom_proposal(
-    graph::AbstractGraph,
-    partition::AbstractPartition;
-    tolerance::Float64=0.01,
-    rng::AbstractRNG=Random.default_rng(),
-)
-    prop = get_valid_recom_proposal(graph, partition, rng; tolerance=tolerance)
-    p_next = clone_for_update(partition)
-    return update_partition!(p_next, graph, prop)
-end
-
-"""
     update_partition!(partition::Partition,
                       graph::AbstractGraph,
-                      proposal::RecomProposal,
+                      proposal::RecomPayload,
                       copy_parent::Bool=false)
 
-Updates the `Partition` with the `RecomProposal`.
+Updates the `Partition` with the `RecomPayload`.
 
 When `copy_parent` is true, a field-wise snapshot of the current partition
 is stored in `partition.parent` (no recursive `deepcopy`). Prefer
@@ -522,7 +474,7 @@ is stored in `partition.parent` (no recursive `deepcopy`). Prefer
 function update_partition!(
     partition::Partition,
     graph::AbstractGraph,
-    proposal::RecomProposal,
+    proposal::RecomPayload,
     copy_parent::Bool=false,
 )
     if copy_parent
@@ -569,17 +521,17 @@ struct ReComConfiguration{RNG<:AbstractRNG} <: AbstractProposalConfiguration
     tree_method::Symbol
     n_parallel::Int
     cut_method::Symbol
-    buffers::Ref{Union{Nothing, PartitionBuffers}}
+    buffers::Ref{Union{Nothing,PartitionBuffers}}
 end
 
 function ReComConfiguration(
     ideal_pop::Float64,
     pop_tolerance::Float64;
-    num_tries::Int = 3,
-    rng::AbstractRNG = Random.default_rng(),
-    tree_method::Symbol = :kruskal,
-    n_parallel::Int = 1,
-    cut_method::Symbol = :subtree_population
+    num_tries::Int=3,
+    rng::AbstractRNG=Random.default_rng(),
+    tree_method::Symbol=:kruskal,
+    n_parallel::Int=1,
+    cut_method::Symbol=:subtree_population
 )
     return ReComConfiguration(
         ideal_pop,
@@ -589,7 +541,7 @@ function ReComConfiguration(
         tree_method,
         n_parallel,
         cut_method,
-        Ref{Union{Nothing, PartitionBuffers}}(nothing)
+        Ref{Union{Nothing,PartitionBuffers}}(nothing)
     )
 end
 

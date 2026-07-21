@@ -8,7 +8,6 @@ using Random
 using DataStructures
 using Statistics
 using DelimitedFiles
-using PyPlot
 using ProgressBars
 using Shapefile: Shapefile
 using LibGEOS: LibGEOS
@@ -48,40 +47,28 @@ export
 
     # Proposals.
     AbstractProposal,
-    RecomProposal,
-    FlipProposal,
-    recom_proposal,
-    flip_proposal,
     AbstractProposalConfiguration,
     ReComConfiguration,
     PopulationFlipConfiguration,
     propose,
 
     # Constraints.
+    AbstractConstraint,
+    satisfies_constraint,
+    PopulationConstraint,
+    ContiguityConstraint,
     within_population_bounds,
     within_percent_of_ideal_population,
-    population_constraint,
-    is_contiguous_flip,
-
-    # Acceptance functions.
-    always_accept,
-    greedy_accept,
-    simulated_annealing_accept,
 
     # Election & metrics.
     AbstractElection,
     Election,
-    ElectionTracker,
     vote_count,
     vote_share,
     seats_won,
     mean_median,
     wasted_votes,
     efficiency_gap,
-
-    # Plotting.
-    score_boxplot,
-    score_histogram,
 
     # Chain iterators.
     AbstractChain,
@@ -97,10 +84,7 @@ include("./proposals.jl")
 include("./constraints.jl")
 include("./recom.jl")
 include("./flip.jl")
-include("./accept.jl")
-include("./optimizers.jl")
 include("./election.jl")
-include("./plot.jl")
 include("./Chain.jl")
 
 end  # module GerryChain

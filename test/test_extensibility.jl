@@ -94,8 +94,8 @@
 
     # population constraint accepts abstracts
     @test within_population_bounds(stub_p, 10, 20)
-    validator = population_constraint(0.5)
-    @test validator(stub_g, stub_p)
+    pop_c = PopulationConstraint(0.5)
+    @test satisfies_constraint(pop_c, stub_g, stub_p)
 
     # clone_for_update isolation on stub
     cloned = clone_for_update(stub_p)
@@ -135,7 +135,7 @@ end
     @test cloned2.dist_nodes[1] === partition.dist_nodes[1]
 
     # parent snapshot path avoids deepcopy
-    proposal = FlipProposal(
+    proposal = GerryChain.FlipPayload(
         1,
         partition.assignments[1],
         2,

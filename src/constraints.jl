@@ -1,4 +1,22 @@
 """
+    AbstractConstraint
+
+Abstract supertype for all constraint definitions in GerryChainJulia.
+Concrete subtypes must implement `satisfies_constraint(c::AbstractConstraint, graph, partition) -> Bool`.
+"""
+abstract type AbstractConstraint end
+
+"""
+    satisfies_constraint(constraint::AbstractConstraint,
+                         graph::AbstractGraph,
+                         partition::AbstractPartition) -> Bool
+
+Return `true` iff `partition` satisfies `constraint` on `graph`.
+Must be implemented by all concrete subtypes of `AbstractConstraint`.
+"""
+function satisfies_constraint end
+
+"""
     within_population_bounds(partition::AbstractPartition, min_pop::Int, max_pop::Int) -> Bool
 
 Returns `true` if all district populations in `partition` are between `min_pop` and
@@ -28,73 +46,61 @@ function within_percent_of_ideal_population(
 end
 
 """
-    population_constraint(tolerance::Float64=0.01) -> Function
+    PopulationConstraint <: AbstractConstraint
 
-Returns a validator function `(graph, partition) -> Bool` for population balance
-within `tolerance`.
+Constraint requiring all district populations in a partition to be within `tolerance`
+percentage of ideal population.
 """
-function population_constraint(tolerance::Float64=0.01)
-    return (graph, partition) -> within_percent_of_ideal_population(graph, partition, tolerance)
+struct PopulationConstraint <: AbstractConstraint
+    tolerance::Float64
+end
+
+PopulationConstraint() = PopulationConstraint(0.01)
+
+function satisfies_constraint(
+    c::PopulationConstraint, graph::AbstractGraph, partition::AbstractPartition
+)::Bool
+    return within_percent_of_ideal_population(graph, partition, c.tolerance)
 end
 
 """
-    is_contiguous_flip(graph, partition, flip, [visited, [queue]]) -> Bool
+    ContiguityConstraint <: AbstractConstraint
 
-Returns `true` if flipping `flip.node` from district `flip.D₁` to `flip.D₂`
-leaves `flip.D₁` contiguous. Uses BFS from each remaining neighbor of `flip.node`
-in `D₁` to verify they can reach each other without passing through `flip.node`.
-
-`visited` and `queue` are optional pre-allocated scratch buffers; providing them
-avoids repeated allocation when calling in a tight loop.
+Constraint requiring all districts in a partition to be contiguous subgraphs.
 """
-function is_contiguous_flip(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    flip::FlipProposal,
-    visited::BitVector=BitVector(),
-    queue::Vector{Int}=sizehint!(Int[], 64),
-)
+struct ContiguityConstraint <: AbstractConstraint end
+
+function _is_district_contiguous(graph::AbstractGraph, partition::AbstractPartition, d::Int)::Bool
+    d_nodes = dist_nodes(partition)[d]
+    isempty(d_nodes) && return true
+
+    start_node = first(d_nodes)
     nbrs = neighbors(graph)
     asg = assignments(partition)
-    node_neighbors = [n for n in nbrs[flip.node] if asg[n] == flip.D₁]
-    if isempty(node_neighbors)
-        return false
-    end
-    source_node = pop!(node_neighbors)
 
-    n = num_nodes(graph)
-    if length(visited) != n
-        resize!(visited, n)
-    end
+    visited_count = 0
+    queue = [start_node]
+    visited = Set{Int}([start_node])
 
-    @inbounds for target_node in node_neighbors
-        fill!(visited, false)
-        empty!(queue)
-        push!(queue, target_node)
-        visited[target_node] = true
-        found = false
-        head = 1
-        while head <= length(queue)
-            curr_node = queue[head]
-            head += 1
-            if curr_node == source_node
-                found = true
-                break
-            end
-            for neighbor in nbrs[curr_node]
-                if (
-                    !visited[neighbor] &&
-                    asg[neighbor] == flip.D₁ &&
-                    neighbor != flip.node
-                )
-                    visited[neighbor] = true
-                    push!(queue, neighbor)
-                end
+    while !isempty(queue)
+        curr = popfirst!(queue)
+        visited_count += 1
+        for nbr in nbrs[curr]
+            if asg[nbr] == d && !(nbr in visited)
+                push!(visited, nbr)
+                push!(queue, nbr)
             end
         end
-        if !found
-            return false
-        end
+    end
+
+    return visited_count == length(d_nodes)
+end
+
+function satisfies_constraint(
+    c::ContiguityConstraint, graph::AbstractGraph, partition::AbstractPartition
+)::Bool
+    for d in 1:num_dists(partition)
+        !_is_district_contiguous(graph, partition, d) && return false
     end
     return true
 end

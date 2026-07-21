@@ -1,10 +1,69 @@
 """
+    _is_contiguous_flip(graph, partition, flip, [visited, [queue]]) -> Bool
+
+Returns `true` if flipping `flip.node` from district `flip.D₁` to `flip.D₂`
+leaves `flip.D₁` contiguous. Uses BFS from each remaining neighbor of `flip.node`
+in `D₁` to verify they can reach each other without passing through `flip.node`.
+"""
+function _is_contiguous_flip(
+    graph::AbstractGraph,
+    partition::AbstractPartition,
+    flip::FlipPayload,
+    visited::BitVector=BitVector(),
+    queue::Vector{Int}=sizehint!(Int[], 64),
+)
+    nbrs = neighbors(graph)
+    asg = assignments(partition)
+    node_neighbors = [n for n in nbrs[flip.node] if asg[n] == flip.D₁]
+    if isempty(node_neighbors)
+        return false
+    end
+    source_node = pop!(node_neighbors)
+
+    n = num_nodes(graph)
+    if length(visited) != n
+        resize!(visited, n)
+    end
+
+    @inbounds for target_node in node_neighbors
+        fill!(visited, false)
+        empty!(queue)
+        push!(queue, target_node)
+        visited[target_node] = true
+        found = false
+        head = 1
+        while head <= length(queue)
+            curr_node = queue[head]
+            head += 1
+            if curr_node == source_node
+                found = true
+                break
+            end
+            for neighbor in nbrs[curr_node]
+                if (
+                    !visited[neighbor] &&
+                    asg[neighbor] == flip.D₁ &&
+                    neighbor != flip.node
+                )
+                    visited[neighbor] = true
+                    push!(queue, neighbor)
+                end
+            end
+        end
+        if !found
+            return false
+        end
+    end
+    return true
+end
+
+"""
     propose_random_flip(graph::AbstractGraph,
                         partition::AbstractPartition,
-                        rng::AbstractRNG=Random.default_rng()) -> FlipProposal
+                        rng::AbstractRNG=Random.default_rng()) -> FlipPayload
 
 Proposes a random boundary flip: picks a random cut edge, randomly assigns
-one endpoint to the other's district, and returns the resulting `FlipProposal`.
+one endpoint to the other's district, and returns the resulting `FlipPayload`.
 """
 function propose_random_flip(
     graph::AbstractGraph,
@@ -46,13 +105,13 @@ function propose_random_flip(
     D₂ = asg[other_node]
     D₂_pop = pops[D₂] + node_pop
     D₂_n = union(nodes[D₂], flipped_node)
-    return FlipProposal(flipped_node, D₁, D₂, D₁_pop, D₂_pop, D₁_n, D₂_n)
+    return FlipPayload(flipped_node, D₁, D₂, D₁_pop, D₂_pop, D₁_n, D₂_n)
 end
 
 """
     is_valid(graph, partition, min_pop, max_pop, proposal, [visited, queue]) -> Bool
 
-Returns `true` iff the `FlipProposal` satisfies both population balance
+Returns `true` iff the `FlipPayload` satisfies both population balance
 (`min_pop ≤ each district ≤ max_pop`) and contiguity of the source district.
 Reusable `visited` and `queue` scratch buffers may be provided to avoid allocations.
 """
@@ -61,17 +120,17 @@ function is_valid(
     partition::AbstractPartition,
     min_pop::Int,
     max_pop::Int,
-    proposal::FlipProposal,
+    proposal::FlipPayload,
     visited::BitVector=BitVector(),
     queue::Vector{Int}=sizehint!(Int[], 64),
 )
     pop_ok = proposal.D₁_pop >= min_pop && proposal.D₁_pop <= max_pop &&
              proposal.D₂_pop >= min_pop && proposal.D₂_pop <= max_pop
-    return pop_ok && is_contiguous_flip(graph, partition, proposal, visited, queue)
+    return pop_ok && _is_contiguous_flip(graph, partition, proposal, visited, queue)
 end
 
 """
-    get_valid_proposal(graph, partition, min_pop, max_pop, [rng]) -> FlipProposal
+    get_valid_proposal(graph, partition, min_pop, max_pop, [rng]) -> FlipPayload
 
 Samples random flips until one satisfies `[min_pop, max_pop]` population bounds
 and district contiguity. Scratch buffers are allocated once and reused internally.
@@ -93,55 +152,19 @@ function get_valid_proposal(
 end
 
 """
-    get_valid_flip_proposal(graph, partition, [rng]; tolerance=0.01) -> FlipProposal
-
-Computes ideal population bounds from `tolerance` and returns a valid `FlipProposal`.
-`tolerance=0.01` means each district must be within ±1% of the ideal population.
-"""
-function get_valid_flip_proposal(
-    graph::AbstractGraph,
-    partition::AbstractPartition,
-    rng::AbstractRNG=Random.default_rng();
-    tolerance::Float64=0.01,
-)
-    ideal_pop = total_pop(graph) / num_dists(partition)
-    min_pop = Int(ceil((1 - tolerance) * ideal_pop))
-    max_pop = Int(floor((1 + tolerance) * ideal_pop))
-    return get_valid_proposal(graph, partition, min_pop, max_pop, rng)
-end
-
-"""
-    flip_proposal(graph, partition; tolerance=0.01, rng=Random.default_rng()) -> Partition
-
-High-level flip proposal function. Generates a population-balanced, contiguous
-`FlipProposal` and returns a new `Partition` with the flip applied.
-Intended for use as the `proposal` argument to `MarkovChain`.
-"""
-function flip_proposal(
-    graph::AbstractGraph,
-    partition::AbstractPartition;
-    tolerance::Float64=0.01,
-    rng::AbstractRNG=Random.default_rng(),
-)
-    prop = get_valid_flip_proposal(graph, partition, rng; tolerance=tolerance)
-    p_next = clone_for_update(partition)
-    return update_partition!(p_next, graph, prop)
-end
-
-"""
     update_partition!(partition::Partition,
                       graph::AbstractGraph,
-                      proposal::FlipProposal,
+                      proposal::FlipPayload,
                       copy_parent::Bool=false) -> Partition
 
-Applies a `FlipProposal` to `partition` in-place. When `copy_parent` is `true`,
+Applies a `FlipPayload` to `partition` in-place. When `copy_parent` is `true`,
 a shallow snapshot of the current partition is stored in `partition.parent` before
-updating (useful for acceptance functions that need to compare to the previous state).
+updating.
 """
 function update_partition!(
     partition::Partition,
     graph::AbstractGraph,
-    proposal::FlipProposal,
+    proposal::FlipPayload,
     copy_parent::Bool=false,
 )
     if copy_parent
@@ -233,7 +256,7 @@ function propose(
     D₂_pop = pops[D₂] + node_pop
     D₂_n = union(dist_nodes(partition)[D₂], flipped_node)
 
-    prop = FlipProposal(flipped_node, D₁, D₂, D₁_pop, D₂_pop, D₁_n, D₂_n)
+    prop = FlipPayload(flipped_node, D₁, D₂, D₁_pop, D₂_pop, D₁_n, D₂_n)
     p_next = clone_for_update(partition)
     return update_partition!(p_next, graph, prop)
 end

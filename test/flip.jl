@@ -22,8 +22,7 @@
         mc = MarkovChain(
             graph,
             config,
-            [(g, p) -> true],
-            always_accept,
+            ((g, p) -> true,),
             partition,
             5
         )

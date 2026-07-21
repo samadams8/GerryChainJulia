@@ -16,7 +16,7 @@ Returns a new `Partition` instance (typically generated via `clone_for_update` a
 """
 function propose end
 
-struct RecomProposal <: AbstractProposal
+struct RecomPayload <: AbstractProposal
     D₁::Int
     D₂::Int
     D₁_pop::Int
@@ -25,7 +25,7 @@ struct RecomProposal <: AbstractProposal
     D₂_nodes::BitSet
 end
 
-struct FlipProposal <: AbstractProposal
+struct FlipPayload <: AbstractProposal
     node::Int  # Node that is being flipped.
     D₁::Int  # Original district.
     D₂::Int  # New district.
@@ -33,8 +33,4 @@ struct FlipProposal <: AbstractProposal
     D₂_pop::Int
     D₁_nodes::BitSet
     D₂_nodes::BitSet
-end
-
-struct DummyProposal <: AbstractProposal
-    reason::String
 end

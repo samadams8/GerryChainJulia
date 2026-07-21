@@ -20,7 +20,7 @@ Computes the total votes for `party` in each district of `partition`.
 function vote_count(graph::AbstractGraph, partition::AbstractPartition, party::String)::Vector{Float64}
     n_dists = num_dists(partition)
     d_nodes = dist_nodes(partition)
-    col = attribute_vector(graph, party)
+    col = _attribute_vector(graph, party)
     counts = zeros(Float64, n_dists)
     for d in 1:n_dists
         s = 0.0

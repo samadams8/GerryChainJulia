@@ -1,27 +1,25 @@
 abstract type AbstractChain end
 
 """
-    MarkovChain{G,S,P,C,A} <: AbstractChain
+    MarkovChain{G,S,P,C} <: AbstractChain
 
-A mutable iterator over redistricting partitions driven by proposal, constraint,
-and accept functions. Follows the standard Julia iterator protocol.
+A mutable iterator over redistricting partitions driven by proposal strategy and constraints.
+Follows the standard Julia iterator protocol.
 
 # Fields
-- `graph`           – the underlying graph (e.g. `GerryChain.BaseGraph`)
-- `proposal_config` – `AbstractProposalConfiguration` object specifying the proposal strategy
-- `constraints`     – `Vector{Function}`, each `(graph, Partition) -> Bool`
-- `accept`          – `(graph, current_state, candidate) -> Float64` or `Bool`
-- `state`           – current `GerryChain.Partition` of type `S`
-- `step`            – 0-based counter of steps taken
-- `total_steps`     – maximum number of steps
+- `graph`                   – the underlying graph (e.g. `GerryChain.BaseGraph`)
+- `proposal_config`         – `AbstractProposalConfiguration` object specifying the proposal strategy
+- `constraints`             – `Tuple` of constraints (e.g. `PopulationConstraint`)
+- `state`                   – current `GerryChain.Partition` of type `S`
+- `step`                    – 0-based counter of steps taken
+- `total_steps`             – maximum number of steps
 - `max_constraint_attempts` – maximum constraint retry attempts before error (0 = unlimited)
-- `show_progress`   – whether to display a ProgressMeter bar
+- `show_progress`           – whether to display a ProgressMeter bar
 """
-mutable struct MarkovChain{G,S,P,C,A} <: AbstractChain
+mutable struct MarkovChain{G,S,P,C} <: AbstractChain
     graph::G
     proposal_config::P
     constraints::C
-    accept::A
     state::S
     step::Int
     total_steps::Int
@@ -29,22 +27,23 @@ mutable struct MarkovChain{G,S,P,C,A} <: AbstractChain
     show_progress::Bool
 end
 
+_eval_constraint(c::AbstractConstraint, g, p) = satisfies_constraint(c, g, p)
+_eval_constraint(c, g, p) = c(g, p)
+
 function MarkovChain(
     graph::G,
     proposal_config::P,
-    constraints::C,
-    accept::A,
+    constraints,
     initial_state::S,
     total_steps::Int;
     show_progress::Bool = false,
     max_constraint_attempts::Int = 0,
-) where {G,S,P,C,A}
-    c = constraints isa AbstractVector ? constraints : [constraints]
+) where {G,S,P}
+    c_tuple = constraints isa Tuple ? constraints : (constraints isa AbstractVector ? Tuple(constraints) : (constraints,))
     return MarkovChain(
         graph,
         proposal_config,
-        c,
-        accept,
+        c_tuple,
         initial_state,
         0,
         total_steps,
@@ -67,7 +66,7 @@ function Base.iterate(chain::MarkovChain{G,S}, progress = nothing) where {G,S}
     attempts = 0
     while true
         candidate = propose(chain.graph, chain.state, chain.proposal_config)::S
-        all(c(chain.graph, candidate) for c in chain.constraints) && break
+        all(_eval_constraint(c, chain.graph, candidate) for c in chain.constraints) && break
         attempts += 1
         if chain.max_constraint_attempts > 0 && attempts >= chain.max_constraint_attempts
             error(
@@ -76,11 +75,9 @@ function Base.iterate(chain::MarkovChain{G,S}, progress = nothing) where {G,S}
         end
     end
 
-    accept_prob = chain.accept(chain.graph, chain.state, candidate)
-    accepted = accept_prob isa Bool ? accept_prob : (rand() <= accept_prob)
-
-    if accepted
-        chain.state = candidate
+    chain.state = candidate
+    if chain.state.parent !== nothing
+        chain.state.parent.parent = nothing
     end
 
     chain.step += 1
@@ -98,13 +95,13 @@ Expected number of draws to collect all `n` unique coupons (harmonic series form
 coupon_collector_expectation(n::Int) = n * sum(1.0 / i for i in 1:n)
 
 """
-    CouponCollectorChain{G,S,P,C,A} <: AbstractChain
+    CouponCollectorChain{G,S,P,C} <: AbstractChain
 
-Wraps a `MarkovChain{G,S,P,C,A}` and burns `micro_steps_per_yield` micro-steps internally
+Wraps a `MarkovChain{G,S,P,C}` and burns `micro_steps_per_yield` micro-steps internally
 for each macro-step it yields, decorrelating the sampled partitions.
 """
-mutable struct CouponCollectorChain{G,S,P,C,A} <: AbstractChain
-    chain::MarkovChain{G,S,P,C,A}
+mutable struct CouponCollectorChain{G,S,P,C} <: AbstractChain
+    chain::MarkovChain{G,S,P,C}
     micro_steps_per_yield::Int
     num_macro_steps::Int
     macro_step::Int
@@ -115,7 +112,6 @@ function CouponCollectorChain(
     graph,
     proposal_config,
     constraints,
-    accept,
     initial_state::S,
     num_macro_steps::Int,
     micro_steps_per_yield::Int;
@@ -126,7 +122,6 @@ function CouponCollectorChain(
         graph,
         proposal_config,
         constraints,
-        accept,
         initial_state,
         num_macro_steps * micro_steps_per_yield;
         show_progress = false,

@@ -1,6 +1,4 @@
 @testset "MarkovChain and CouponCollectorChain" begin
-    # Create a small test graph and partition
-    # 4 nodes in a line graph: 1 -- 2 -- 3 -- 4
     g = SimpleGraph(4)
     add_edge!(g, 1, 2)
     add_edge!(g, 2, 3)
@@ -21,8 +19,6 @@
         4, 3, 40, pops, adj_mat, edge_src, edge_dst, nbrs, g, attrs
     )
 
-    # Initial partition: districts 1 and 2
-    # Node 1, 2 -> district 1; Node 3, 4 -> district 2
     dist_nodes = [BitSet([1, 2]), BitSet([3, 4])]
     dist_pops = [20, 20]
     assignments = [1, 1, 2, 2]
@@ -35,21 +31,16 @@
     )
 
     struct DummyProposalConfig <: AbstractProposalConfiguration end
-    GerryChain.propose(g, p, ::DummyProposalConfig) = p
+    GerryChain.propose(g, p, ::DummyProposalConfig) = clone_for_update(p)
     dummy_config = DummyProposalConfig()
 
-    # Always accept function: accept(graph, current_state, candidate) -> 1.0
-    always_accept_fn = (g, curr, cand) -> 1.0
-
-    # Constraint function: always true
     true_constraint = (g, p) -> true
 
     @testset "MarkovChain basic iteration" begin
         mc = MarkovChain(
             graph,
             dummy_config,
-            [true_constraint],
-            always_accept_fn,
+            (true_constraint,),
             initial_partition,
             5
         )
@@ -61,6 +52,9 @@
         for state in mc
             steps += 1
             @test state isa Partition
+            if state.parent !== nothing
+                @test state.parent.parent === nothing
+            end
         end
         @test steps == 5
     end
@@ -70,8 +64,7 @@
         mc_fail = MarkovChain(
             graph,
             dummy_config,
-            [false_constraint],
-            always_accept_fn,
+            (false_constraint,),
             initial_partition,
             5;
             max_constraint_attempts = 10
@@ -87,8 +80,7 @@
         ccc = CouponCollectorChain(
             graph,
             dummy_config,
-            [true_constraint],
-            always_accept_fn,
+            (true_constraint,),
             initial_partition,
             3,
             2

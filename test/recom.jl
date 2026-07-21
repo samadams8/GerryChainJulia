@@ -29,23 +29,6 @@
         prop = propose(graph, partition, config)
         @test prop isa Partition
         @test num_dists(prop) == 4
-
-        # Test MarkovChain integration
-        mc = MarkovChain(
-            graph,
-            config,
-            [(g, p) -> within_percent_of_ideal_population(g, p, 0.1)],
-            always_accept,
-            partition,
-            3
-        )
-
-        steps = 0
-        for state in mc
-            steps += 1
-            @test state isa Partition
-        end
-        @test steps == 3
     end
 
     @testset "get_balanced_proposal_subtree_population" begin
@@ -66,17 +49,17 @@
             graph, mst_edges, sg_nodes, partition, min_pop, max_pop, D₁, D₂
         )
 
-        @test edge_scan isa Union{RecomProposal,GerryChain.DummyProposal}
-        @test subtree isa Union{RecomProposal,GerryChain.DummyProposal}
+        @test edge_scan isa Union{GerryChain.RecomPayload,Nothing}
+        @test subtree isa Union{GerryChain.RecomPayload,Nothing}
 
-        if edge_scan isa RecomProposal
-            @test subtree isa RecomProposal
+        if edge_scan isa GerryChain.RecomPayload
+            @test subtree isa GerryChain.RecomPayload
             @test subtree.D₁_nodes ∪ subtree.D₂_nodes == sg_nodes
             @test isempty(subtree.D₁_nodes ∩ subtree.D₂_nodes)
             @test subtree.D₁_pop == edge_scan.D₁_pop
             @test subtree.D₂_pop == edge_scan.D₂_pop
         else
-            @test subtree isa GerryChain.DummyProposal
+            @test subtree === nothing
         end
     end
 end
