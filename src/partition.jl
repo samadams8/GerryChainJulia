@@ -30,7 +30,7 @@ Copy partition arrays; **share** `dist_nodes` BitSet references (callers must
 """
 function _copy_partition_fields(
     p::Partition;
-    parent::Union{AbstractPartition,Nothing} = nothing,
+    parent::Union{AbstractPartition,Nothing}=nothing,
 )::Partition
     return Partition(
         p.num_dists,
@@ -71,7 +71,7 @@ Return a clone suitable for mutation. Arrays are copied; district `BitSet`s are
 shared until an update copies the districts it mutates. Graph is not involved.
 """
 function clone_for_update(p::Partition)::Partition
-    return _copy_partition_fields(p; parent = p)
+    return _copy_partition_fields(p; parent=p)
 end
 
 function clone_for_update(p::Partition, buffers::PartitionBuffers)::Partition

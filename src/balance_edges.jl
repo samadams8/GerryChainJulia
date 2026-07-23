@@ -14,7 +14,7 @@ mutable struct MSTScratch
     max_node::Int
 end
 
-function MSTScratch(max_edges::Int = 0, max_node::Int = 0)
+function MSTScratch(max_edges::Int=0, max_node::Int=0)
     return MSTScratch(
         Vector{Float64}(undef, max_edges),
         Vector{Int}(undef, max_edges),
@@ -54,7 +54,7 @@ mutable struct SubtreeCutScratch
     max_node::Int
 end
 
-function SubtreeCutScratch(max_node::Int = 0)
+function SubtreeCutScratch(max_node::Int=0)
     return SubtreeCutScratch(
         [Int[] for _ = 1:max_node],
         zeros(Int, max_node),
@@ -70,7 +70,7 @@ function _ensure_subtree_cut_scratch!(scratch::SubtreeCutScratch, max_node::Int)
     if scratch.max_node < max_node || length(scratch.parent) < max_node
         old = scratch.max_node
         resize!(scratch.adj, max_node)
-        for i = (old + 1):max_node
+        for i = (old+1):max_node
             scratch.adj[i] = Int[]
         end
         scratch.parent = zeros(Int, max_node)
@@ -247,8 +247,8 @@ function _kruskal_mst(
     graph::BaseGraph,
     edges::Vector{Int},
     nodes::Vector{Int},
-    rng::AbstractRNG = Random.default_rng();
-    scratch::Union{MSTScratch,Nothing} = nothing,
+    rng::AbstractRNG=Random.default_rng();
+    scratch::Union{MSTScratch,Nothing}=nothing,
 )::BitSet
     max_node = isempty(nodes) ? 0 : maximum(nodes)
     if scratch === nothing
@@ -272,7 +272,7 @@ function wilson_ust(
     graph::AbstractGraph,
     edges::Vector{Int},
     nodes::Vector{Int},
-    rng::AbstractRNG = Random.default_rng(),
+    rng::AbstractRNG=Random.default_rng(),
 )::BitSet
     length(nodes) <= 1 && return BitSet()
 

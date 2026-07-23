@@ -147,7 +147,7 @@ for each node.
 function get_attribute_by_key(
     node_attributes::Array,
     column_name::String,
-    process_value::Function = identity,
+    process_value::Function=identity,
 )::Array
     return [process_value(n[column_name]) for n in node_attributes]
 end
@@ -201,8 +201,8 @@ Constructs BaseGraph from .shp file.
 function graph_from_shp(
     filepath::AbstractString,
     pop_col::AbstractString,
-    adjacency::String = "rook";
-    region_columns::Vector{String} = String[],
+    adjacency::String="rook";
+    region_columns::Vector{String}=String[],
 )::BaseGraph
     table = read_table(filepath)
 
@@ -317,7 +317,7 @@ end
 function graph_from_json(
     filepath::AbstractString,
     pop_col::AbstractString;
-    region_columns::Vector{String} = String[],
+    region_columns::Vector{String}=String[],
 )::BaseGraph
     raw_graph = JSON.parsefile(filepath)
     nodes = raw_graph["nodes"]
@@ -390,18 +390,18 @@ from step to step in our Markov Chains.
 function BaseGraph(
     filepath::AbstractString,
     pop_col::AbstractString;
-    adjacency::String = "rook",
-    region_columns::Vector{String} = String[],
+    adjacency::String="rook",
+    region_columns::Vector{String}=String[],
 )::BaseGraph
     extension = uppercase(splitext(filepath)[2])
     if uppercase(extension) == ".JSON"
-        return graph_from_json(filepath, pop_col; region_columns = region_columns)
+        return graph_from_json(filepath, pop_col; region_columns=region_columns)
     elseif uppercase(extension) == ".SHP"
         return graph_from_shp(
             filepath,
             pop_col,
             adjacency;
-            region_columns = region_columns,
+            region_columns=region_columns,
         )
     else
         throw(
