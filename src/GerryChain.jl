@@ -73,7 +73,8 @@ export
     AbstractChain,
     MarkovChain,
     CouponCollectorChain,
-    coupon_collector_expectation
+    coupon_collector_expectation,
+    ShortBurstChain
 
 include("./graph.jl")
 include("./partition.jl")

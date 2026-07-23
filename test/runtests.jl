@@ -26,6 +26,7 @@ tests = [
     "election",
     "test_chain",
     "test_extensibility",
+    "test_short_burst",
 ]
 
 @testset "GerryChainJulia" begin

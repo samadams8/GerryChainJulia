@@ -155,3 +155,114 @@ function Base.iterate(c::CouponCollectorChain{G,S}, progress = nothing) where {G
     c.show_progress && update(progress)
     return state, progress
 end
+
+# ShortBurstChain implementation.
+
+"""
+    ShortBurstChain{G,S,P,C,F} <: AbstractChain
+
+A chain that runs short bursts of Markov Chain steps, returning every individual micro-step
+partition. At the end of each burst of length `burst_length`, the state of the inner chain is
+reset/teleported back to the best-known partition encountered so far.
+
+# Fields
+- `chain`                  – underlying `MarkovChain`
+- `score_fn`               – function `(graph, partition) -> Real` defining the objective score
+- `burst_length`           – length of each burst (number of micro-steps)
+- `num_bursts`             – total number of bursts to run
+- `maximize`               – if `true`, maximize the score; if `false`, minimize it
+- `current_burst`          – current burst index (0-based)
+- `current_step_in_burst`  – step within the current burst (0-based)
+- `best_state`             – the best-scoring partition encountered so far
+- `best_score`             – the score of the best-scoring partition encountered so far
+- `show_progress`          – whether to show a progress bar
+"""
+mutable struct ShortBurstChain{G,S,P,C,F} <: AbstractChain
+    chain::MarkovChain{G,S,P,C}
+    score_fn::F
+    burst_length::Int
+    num_bursts::Int
+    maximize::Bool
+    current_burst::Int
+    current_step_in_burst::Int
+    best_state::S
+    best_score::Float64
+    show_progress::Bool
+end
+
+function ShortBurstChain(
+    graph,
+    proposal_config,
+    constraints,
+    initial_state::S,
+    num_bursts::Int,
+    burst_length::Int,
+    score_fn::F;
+    maximize::Bool = true,
+    show_progress::Bool = false,
+    max_constraint_attempts::Int = 0,
+) where {S, F}
+    inner = MarkovChain(
+        graph,
+        proposal_config,
+        constraints,
+        initial_state,
+        num_bursts * burst_length;
+        show_progress = false,
+        max_constraint_attempts = max_constraint_attempts,
+    )
+    best_score = Float64(score_fn(graph, initial_state))
+    return ShortBurstChain(
+        inner,
+        score_fn,
+        burst_length,
+        num_bursts,
+        maximize,
+        0,
+        0,
+        initial_state,
+        best_score,
+        show_progress,
+    )
+end
+
+Base.length(c::ShortBurstChain) = c.num_bursts * c.burst_length
+Base.eltype(::Type{<:ShortBurstChain{G,S}}) where {G,S} = S
+
+function Base.iterate(c::ShortBurstChain{G,S}, progress = nothing) where {G,S}
+    if c.current_burst == 0 && c.current_step_in_burst == 0 && c.show_progress
+        progress = ProgressBar(1:length(c))
+        set_description(progress, "ShortBurst: ")
+    end
+
+    if c.current_burst >= c.num_bursts
+        return nothing
+    end
+
+    result = iterate(c.chain, progress)
+    result === nothing && return nothing
+    state = result[1]::S
+
+    score = Float64(c.score_fn(c.chain.graph, state))
+    if c.maximize
+        if score >= c.best_score
+            c.best_score = score
+            c.best_state = state
+        end
+    else
+        if score <= c.best_score
+            c.best_score = score
+            c.best_state = state
+        end
+    end
+
+    c.current_step_in_burst += 1
+    if c.current_step_in_burst >= c.burst_length
+        c.current_burst += 1
+        c.current_step_in_burst = 0
+        c.chain.state = c.best_state
+    end
+
+    c.show_progress && update(progress)
+    return state, progress
+end
